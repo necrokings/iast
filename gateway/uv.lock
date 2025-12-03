@@ -12,6 +12,14 @@ wheels = [
 ]
 
 [[package]]
+name = "ebcdic"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/2f/633031205333bee5f9f93761af8268746aa75f38754823aabb8570eb245b/ebcdic-1.1.1-py2.py3-none-any.whl", hash = "sha256:33b4cb729bc2d0bf46cc1847b0e5946897cb8d3f53520c5b9aa5fa98d7e735f1", size = 128537, upload-time = "2019-08-09T00:54:35.544Z" },
+]
+
+[[package]]
 name = "pydantic"
 version = "2.12.5"
 source = { registry = "https://pypi.org/simple" }
@@ -129,18 +137,30 @@ name = "terminal-gateway"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "ebcdic" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "redis" },
     { name = "structlog" },
+    { name = "tnz" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ebcdic", specifier = ">=1.1.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "redis", specifier = ">=7.1.0" },
     { name = "structlog", specifier = ">=25.5.0" },
+    { name = "tnz", specifier = ">=0.6.3" },
+]
+
+[[package]]
+name = "tnz"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/2b/22c10aab609bddedc7fc29fb7949ab29666a3f38b1c1e32594c6d15b4b58/tnz-0.6.3-py3-none-any.whl", hash = "sha256:f6d99e1395fb07067a467e76c46d64bd2ecf65de6bcd19cc9c5e6aff2e3ae358", size = 129130, upload-time = "2025-11-04T13:05:46.902Z" },
 ]
 
 [[package]]

@@ -14,11 +14,14 @@ import {
 } from '../services/websocket';
 import {
   type MessageEnvelope,
+  type TerminalType,
+  type TN3270Field,
   isDataMessage,
   isErrorMessage,
   isSessionCreatedMessage,
   isSessionDestroyedMessage,
   isPongMessage,
+  isTN3270ScreenMessage,
 } from '@terminal/shared';
 import { generateSessionId } from '@terminal/shared';
 import {
@@ -28,6 +31,7 @@ import {
 
 export interface UseTerminalOptions {
   sessionId?: string;
+  terminalType?: TerminalType;
   autoConnect?: boolean;
 }
 
@@ -36,27 +40,46 @@ export interface UseTerminalReturn {
   status: ConnectionStatus;
   dimensions: TerminalDimensions;
   sessionId: string;
+  /** TN3270 field map (empty for PTY terminals) */
+  fields: TN3270Field[];
+  /** TN3270 cursor position */
+  cursorPosition: { row: number; col: number };
   connect: () => void;
   disconnect: () => void;
   write: (data: string) => void;
+  sendKey: (key: string) => void;
   resize: (cols: number, rows: number) => void;
   clear: () => void;
   focus: () => void;
+  /** Move cursor to position (TN3270 only) */
+  moveCursor: (row: number, col: number) => void;
+  /** Check if a position is in an input field (TN3270) */
+  isInputPosition: (row: number, col: number) => boolean;
 }
 
 export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn {
-  const { autoConnect = true } = options;
+  const { autoConnect = true, terminalType = 'pty' } = options;
 
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const wsRef = useRef<TerminalWebSocket | null>(null);
 
+  // TN3270 uses fixed 80x43 (IBM-3278-4-E), PTY uses dynamic sizing
+  const isTn3270 = terminalType === 'tn3270';
+  const fixedCols = isTn3270 ? 80 : config.terminal.defaultCols;
+  const fixedRows = isTn3270 ? 43 : config.terminal.defaultRows;
+
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [dimensions, setDimensions] = useState<TerminalDimensions>({
-    cols: config.terminal.defaultCols,
-    rows: config.terminal.defaultRows,
+    cols: fixedCols,
+    rows: fixedRows,
   });
+  
+  // TN3270 field map and cursor tracking
+  const [fields, setFields] = useState<TN3270Field[]>([]);
+  const [cursorPosition, setCursorPosition] = useState<{ row: number; col: number }>({ row: 0, col: 0 });
+  const fieldsRef = useRef<TN3270Field[]>([]);
 
   // Get or create session ID
   const [sessionId] = useState<string>(() => {
@@ -74,6 +97,13 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     if (isDataMessage(message)) {
       terminalInstance.current.write(message.payload);
+    } else if (isTN3270ScreenMessage(message)) {
+      // TN3270 screen update with field information
+      terminalInstance.current.write(message.payload);
+      // Update field map
+      setFields(message.meta.fields);
+      fieldsRef.current = message.meta.fields;
+      setCursorPosition({ row: message.meta.cursorRow, col: message.meta.cursorCol });
     } else if (isErrorMessage(message)) {
       terminalInstance.current.write(`\r\n\x1b[31mError: ${message.payload}\x1b[0m\r\n`);
     } else if (isSessionCreatedMessage(message)) {
@@ -100,6 +130,35 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     }
   }, []);
 
+  // Check if a position is in an unprotected (input) field
+  const isInputPosition = useCallback((row: number, col: number): boolean => {
+    if (!isTn3270) return true; // PTY terminals allow input anywhere
+    
+    const currentFields = fieldsRef.current;
+    if (currentFields.length === 0) return false; // No fields defined = no input
+    
+    const cols = fixedCols;
+    const addr = row * cols + col;
+    
+    for (const field of currentFields) {
+      // Check if address is within this field
+      if (field.end > field.start) {
+        // Normal case - no wrap
+        if (addr >= field.start && addr < field.end) {
+          return !field.protected;
+        }
+      } else {
+        // Wrap-around case
+        if (addr >= field.start || addr < field.end) {
+          return !field.protected;
+        }
+      }
+    }
+    
+    // Position not in any field = protected
+    return false;
+  }, [isTn3270, fixedCols]);
+
   // Initialize terminal
   useEffect(() => {
     if (!terminalRef.current || terminalInstance.current) return;
@@ -108,9 +167,9 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
       cursorBlink: config.terminal.cursorBlink,
       fontSize: config.terminal.fontSize,
       fontFamily: config.terminal.fontFamily,
-      scrollback: config.terminal.scrollback,
-      cols: config.terminal.defaultCols,
-      rows: config.terminal.defaultRows,
+      scrollback: isTn3270 ? 0 : config.terminal.scrollback, // No scrollback for 3270
+      cols: fixedCols,
+      rows: fixedRows,
       theme: {
         background: '#0a0a0c',
         foreground: '#e4e4e7',
@@ -142,19 +201,24 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     terminal.loadAddon(webLinks);
 
     terminal.open(terminalRef.current);
-    fit.fit();
+    
+    // Only fit to container for PTY, TN3270 uses fixed size
+    if (!isTn3270) {
+      fit.fit();
+    }
 
     terminalInstance.current = terminal;
     fitAddon.current = fit;
 
     // Handle user input
     terminal.onData((data: string): void => {
+      // Send all input to backend - the tnz library handles field protection
       wsRef.current?.sendData(data);
     });
 
-    // Handle resize
+    // Handle resize - only for PTY terminals
     const handleResize = (): void => {
-      if (fitAddon.current) {
+      if (!isTn3270 && fitAddon.current) {
         fitAddon.current.fit();
         if (terminalInstance.current) {
           const newDims = {
@@ -169,12 +233,65 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     window.addEventListener('resize', handleResize);
 
+    // For TN3270, track cursor position on any cursor movement
+    let cursorDisposable: { dispose: () => void } | null = null;
+    if (isTn3270) {
+      // Poll cursor position periodically to catch arrow key movements
+      const cursorInterval = setInterval(() => {
+        if (terminalInstance.current) {
+          const row = terminalInstance.current.buffer.active.cursorY;
+          const col = terminalInstance.current.buffer.active.cursorX;
+          setCursorPosition(prev => {
+            if (prev.row !== row || prev.col !== col) {
+              return { row, col };
+            }
+            return prev;
+          });
+        }
+      }, 50);
+      
+      cursorDisposable = { dispose: () => clearInterval(cursorInterval) };
+    }
+
+    // For TN3270, add click handler to move cursor using mousedown on the xterm viewport
+    let clickHandler: ((e: Event) => void) | null = null;
+    if (isTn3270) {
+      // Wait a tick for xterm to render, then attach to the viewport
+      setTimeout(() => {
+        const viewport = terminalRef.current?.querySelector('.xterm-screen');
+        if (viewport) {
+          clickHandler = (e: Event): void => {
+            if (!terminalInstance.current) return;
+            const mouseEvent = e as MouseEvent;
+            
+            const rect = viewport.getBoundingClientRect();
+            const cellWidth = rect.width / fixedCols;
+            const cellHeight = rect.height / fixedRows;
+            
+            // Calculate which cell was clicked
+            const col = Math.floor((mouseEvent.clientX - rect.left) / cellWidth);
+            const row = Math.floor((mouseEvent.clientY - rect.top) / cellHeight);
+            
+            // Clamp to valid range
+            const clampedCol = Math.max(0, Math.min(col, fixedCols - 1));
+            const clampedRow = Math.max(0, Math.min(row, fixedRows - 1));
+            
+            // Move cursor using ANSI escape sequence (1-indexed)
+            terminalInstance.current.write(`\x1b[${clampedRow + 1};${clampedCol + 1}H`);
+            setCursorPosition({ row: clampedRow, col: clampedCol });
+          };
+          
+          viewport.addEventListener('mousedown', clickHandler);
+        }
+      }, 100);
+    }
+
     // Create WebSocket connection
     wsRef.current = createTerminalWebSocket(sessionId, {
       onMessage: handleMessage,
       onStatusChange: handleStatusChange,
       onError: handleError,
-    });
+    }, terminalType);
 
     if (autoConnect) {
       wsRef.current.connect();
@@ -182,12 +299,17 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     return (): void => {
       window.removeEventListener('resize', handleResize);
+      cursorDisposable?.dispose();
+      if (clickHandler) {
+        const viewport = terminalRef.current?.querySelector('.xterm-screen');
+        viewport?.removeEventListener('mousedown', clickHandler);
+      }
       wsRef.current?.disconnect();
       terminal.dispose();
       terminalInstance.current = null;
       fitAddon.current = null;
     };
-  }, [sessionId, autoConnect, handleMessage, handleStatusChange, handleError]);
+  }, [sessionId, autoConnect, terminalType, handleMessage, handleStatusChange, handleError, isTn3270, fixedCols, fixedRows, isInputPosition]);
 
   const connect = useCallback((): void => {
     wsRef.current?.connect();
@@ -199,6 +321,10 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
   const write = useCallback((data: string): void => {
     terminalInstance.current?.write(data);
+  }, []);
+
+  const sendKey = useCallback((key: string): void => {
+    wsRef.current?.sendData(key);
   }, []);
 
   const resize = useCallback((cols: number, rows: number): void => {
@@ -217,16 +343,29 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     terminalInstance.current?.focus();
   }, []);
 
+  // Move cursor to a specific position (TN3270)
+  const moveCursor = useCallback((row: number, col: number): void => {
+    if (!terminalInstance.current) return;
+    // Move xterm cursor using ANSI escape sequence (1-indexed)
+    terminalInstance.current.write(`\x1b[${row + 1};${col + 1}H`);
+    setCursorPosition({ row, col });
+  }, []);
+
   return {
     terminalRef,
     status,
     dimensions,
     sessionId,
+    fields,
+    cursorPosition,
     connect,
     disconnect,
     write,
+    sendKey,
     resize,
     clear,
     focus,
+    moveCursor,
+    isInputPosition,
   };
 }

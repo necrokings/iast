@@ -36,11 +36,35 @@ class PTYConfig:
 
 
 @dataclass(frozen=True)
+class TN3270Config:
+    """TN3270 terminal session configuration.
+
+    Uses IBM-3278-4-E model (80x43) by default.
+    """
+
+    host: str = field(default_factory=lambda: os.getenv("TN3270_HOST", "localhost"))
+    port: int = field(default_factory=lambda: int(os.getenv("TN3270_PORT", "3270")))
+    # IBM-3278-4-E: 80 columns x 43 rows (fixed, does not resize)
+    cols: int = field(default_factory=lambda: int(os.getenv("TN3270_COLS", "80")))
+    rows: int = field(default_factory=lambda: int(os.getenv("TN3270_ROWS", "43")))
+    terminal_type: str = field(
+        default_factory=lambda: os.getenv("TN3270_TERMINAL_TYPE", "IBM-3278-4-E")
+    )
+    max_sessions: int = field(
+        default_factory=lambda: int(os.getenv("TN3270_MAX_SESSIONS", "10"))
+    )
+    secure: bool = field(
+        default_factory=lambda: os.getenv("TN3270_SECURE", "false").lower() == "true"
+    )
+
+
+@dataclass(frozen=True)
 class Config:
     """Application configuration."""
 
     valkey: ValkeyConfig = field(default_factory=ValkeyConfig)
     pty: PTYConfig = field(default_factory=PTYConfig)
+    tn3270: TN3270Config = field(default_factory=TN3270Config)
 
 
 _config: Config | None = None

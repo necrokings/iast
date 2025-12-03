@@ -8,9 +8,13 @@ import {
   getPtyInputChannel,
   getPtyOutputChannel,
   getPtyControlChannel,
+  getTn3270InputChannel,
+  getTn3270OutputChannel,
+  getTn3270ControlChannel,
   getGatewayControlChannel,
   getSessionsChannel,
   type MessageEnvelope,
+  type TerminalType,
   serializeMessage,
 } from '@terminal/shared';
 
@@ -55,18 +59,25 @@ export class ValkeyClient {
     });
   }
 
-  async publishInput(sessionId: string, message: MessageEnvelope): Promise<void> {
-    const channel = getPtyInputChannel(sessionId);
+  // PTY channel methods
+  async publishInput(sessionId: string, message: MessageEnvelope, terminalType: TerminalType = 'pty'): Promise<void> {
+    const channel = terminalType === 'tn3270' 
+      ? getTn3270InputChannel(sessionId) 
+      : getPtyInputChannel(sessionId);
     await this.publisher.publish(channel, serializeMessage(message));
   }
 
-  async publishOutput(sessionId: string, message: MessageEnvelope): Promise<void> {
-    const channel = getPtyOutputChannel(sessionId);
+  async publishOutput(sessionId: string, message: MessageEnvelope, terminalType: TerminalType = 'pty'): Promise<void> {
+    const channel = terminalType === 'tn3270'
+      ? getTn3270OutputChannel(sessionId)
+      : getPtyOutputChannel(sessionId);
     await this.publisher.publish(channel, serializeMessage(message));
   }
 
-  async publishControl(sessionId: string, message: MessageEnvelope): Promise<void> {
-    const channel = getPtyControlChannel(sessionId);
+  async publishControl(sessionId: string, message: MessageEnvelope, terminalType: TerminalType = 'pty'): Promise<void> {
+    const channel = terminalType === 'tn3270'
+      ? getTn3270InputChannel(sessionId)  // TN3270 uses input channel for control
+      : getPtyControlChannel(sessionId);
     await this.publisher.publish(channel, serializeMessage(message));
   }
 
@@ -75,19 +86,28 @@ export class ValkeyClient {
     await this.publisher.publish(channel, serializeMessage(message));
   }
 
+  async publishTn3270Control(message: MessageEnvelope): Promise<void> {
+    const channel = getTn3270ControlChannel();
+    await this.publisher.publish(channel, serializeMessage(message));
+  }
+
   async publishSessionEvent(message: MessageEnvelope): Promise<void> {
     const channel = getSessionsChannel();
     await this.publisher.publish(channel, serializeMessage(message));
   }
 
-  async subscribeToOutput(sessionId: string, handler: (message: string) => void): Promise<void> {
-    const channel = getPtyOutputChannel(sessionId);
+  async subscribeToOutput(sessionId: string, handler: (message: string) => void, terminalType: TerminalType = 'pty'): Promise<void> {
+    const channel = terminalType === 'tn3270'
+      ? getTn3270OutputChannel(sessionId)
+      : getPtyOutputChannel(sessionId);
     this.sessionSubscribers.set(sessionId, handler);
     await this.subscriber.subscribe(channel);
   }
 
-  async unsubscribeFromOutput(sessionId: string): Promise<void> {
-    const channel = getPtyOutputChannel(sessionId);
+  async unsubscribeFromOutput(sessionId: string, terminalType: TerminalType = 'pty'): Promise<void> {
+    const channel = terminalType === 'tn3270'
+      ? getTn3270OutputChannel(sessionId)
+      : getPtyOutputChannel(sessionId);
     this.sessionSubscribers.delete(sessionId);
     await this.subscriber.unsubscribe(channel);
   }

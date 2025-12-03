@@ -6,6 +6,7 @@ import { config } from '../config';
 import type { ConnectionStatus } from '../types';
 import {
   type MessageEnvelope,
+  type TerminalType,
   createDataMessage,
   createResizeMessage,
   createPingMessage,
@@ -25,6 +26,7 @@ export type WebSocketEventHandler = {
 export class TerminalWebSocket {
   private ws: WebSocket | null = null;
   private sessionId: string;
+  private terminalType: TerminalType;
   private handlers: WebSocketEventHandler;
   private reconnectAttempts = 0;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -32,9 +34,10 @@ export class TerminalWebSocket {
   private isClosing = false;
   private seq = 0;
 
-  constructor(sessionId: string, handlers: WebSocketEventHandler) {
+  constructor(sessionId: string, handlers: WebSocketEventHandler, terminalType: TerminalType = 'pty') {
     this.sessionId = sessionId;
     this.handlers = handlers;
+    this.terminalType = terminalType;
   }
 
   connect(): void {
@@ -46,7 +49,11 @@ export class TerminalWebSocket {
     this.handlers.onStatusChange('connecting');
 
     const token = getStoredToken();
-    const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    const params = new URLSearchParams();
+    if (token) params.set('token', token);
+    if (this.terminalType !== 'pty') params.set('type', this.terminalType);
+    const queryString = params.toString();
+    const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${queryString ? `?${queryString}` : ''}`;
 
     try {
       this.ws = new WebSocket(url);
@@ -70,6 +77,7 @@ export class TerminalWebSocket {
 
       // Send session create message
       const createMsg = createSessionCreateMessage(this.sessionId, {
+        terminalType: this.terminalType,
         cols: config.terminal.defaultCols,
         rows: config.terminal.defaultRows,
       });
@@ -192,7 +200,8 @@ export class TerminalWebSocket {
 
 export function createTerminalWebSocket(
   sessionId: string,
-  handlers: WebSocketEventHandler
+  handlers: WebSocketEventHandler,
+  terminalType: TerminalType = 'pty'
 ): TerminalWebSocket {
-  return new TerminalWebSocket(sessionId, handlers);
+  return new TerminalWebSocket(sessionId, handlers, terminalType);
 }

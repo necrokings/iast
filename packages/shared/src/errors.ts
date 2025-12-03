@@ -77,8 +77,10 @@ export class TerminalError extends Error {
       this.cause = options.cause;
     }
 
-    // Maintains proper stack trace for where our error was thrown
-    Error.captureStackTrace(this, TerminalError);
+    // Maintains proper stack trace for where our error was thrown (V8 only)
+    if ('captureStackTrace' in Error && typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, TerminalError);
+    }
   }
 
   toJSON(): Record<string, unknown> {

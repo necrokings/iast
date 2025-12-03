@@ -6,6 +6,9 @@ export const CHANNEL_PREFIX = {
   PTY_INPUT: 'pty.input',
   PTY_OUTPUT: 'pty.output',
   PTY_CONTROL: 'pty.control',
+  TN3270_INPUT: 'tn3270.input',
+  TN3270_OUTPUT: 'tn3270.output',
+  TN3270_CONTROL: 'tn3270.control',
   SESSIONS: 'sessions.events',
   GATEWAY_CONTROL: 'gateway.control',
 } as const;
@@ -22,6 +25,18 @@ export function getPtyOutputChannel(sessionId: string): string {
 
 export function getPtyControlChannel(sessionId: string): string {
   return `${CHANNEL_PREFIX.PTY_CONTROL}.${sessionId}`;
+}
+
+export function getTn3270InputChannel(sessionId: string): string {
+  return `${CHANNEL_PREFIX.TN3270_INPUT}.${sessionId}`;
+}
+
+export function getTn3270OutputChannel(sessionId: string): string {
+  return `${CHANNEL_PREFIX.TN3270_OUTPUT}.${sessionId}`;
+}
+
+export function getTn3270ControlChannel(): string {
+  return CHANNEL_PREFIX.TN3270_CONTROL;
 }
 
 export function getGatewayControlChannel(): string {

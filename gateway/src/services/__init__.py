@@ -1,5 +1,5 @@
 # ============================================================================
-# Services Module - Valkey Client, PTY Manager
+# Services Module - Valkey Client, PTY Manager, TN3270 Manager
 # ============================================================================
 
 from .valkey import (
@@ -14,6 +14,13 @@ from .pty import (
     get_pty_manager,
     init_pty_manager,
 )
+from .tn3270 import (
+    TN3270Manager,
+    TN3270Session,
+    TN3270Renderer,
+    get_tn3270_manager,
+    init_tn3270_manager,
+)
 
 __all__ = [
     # Valkey Client
@@ -26,4 +33,10 @@ __all__ = [
     "PTYSession",
     "get_pty_manager",
     "init_pty_manager",
+    # TN3270 Manager
+    "TN3270Manager",
+    "TN3270Session",
+    "TN3270Renderer",
+    "get_tn3270_manager",
+    "init_tn3270_manager",
 ]

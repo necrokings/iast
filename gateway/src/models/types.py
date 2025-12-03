@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         SessionDestroyedMessage,
         SessionDestroyMessage,
     )
+    from .tn3270 import TN3270ScreenMessage, TN3270CursorMessage
 
 
 class MessageType(StrEnum):
@@ -30,6 +31,8 @@ class MessageType(StrEnum):
     SESSION_DESTROY = "session.destroy"
     SESSION_CREATED = "session.created"
     SESSION_DESTROYED = "session.destroyed"
+    TN3270_SCREEN = "tn3270.screen"
+    TN3270_CURSOR = "tn3270.cursor"
 
 
 # Type alias for all message types
@@ -43,4 +46,6 @@ MessageEnvelope = (
     "| SessionDestroyMessage"
     "| SessionCreatedMessage"
     "| SessionDestroyedMessage"
+    "| TN3270ScreenMessage"
+    "| TN3270CursorMessage"
 )

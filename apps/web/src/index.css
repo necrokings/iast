@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Configure dark mode to use .dark class selector */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Custom dark theme colors - deeper/richer than Tailwind defaults */
 @theme {
   /* Primary blue */
