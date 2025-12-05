@@ -473,6 +473,13 @@ class LoginAST(AST):
             )
 
         except Exception as e:
+            # Capture the current screen when a failure occurs
+            error_screen = None
+            try:
+                error_screen = host.get_formatted_screen(show_row_numbers=False)
+            except Exception:
+                pass  # Ignore screen capture errors
+
             duration_ms = self._record_policy_result(
                 policy_number=policy_number,
                 status="failed",
@@ -481,6 +488,7 @@ class LoginAST(AST):
                 current=current,
                 total=total,
                 error=str(e),
+                policy_data={"errorScreen": error_screen} if error_screen else None,
             )
             log.warning(
                 f"Policy {policy_number} failed", error=str(e), duration_ms=duration_ms

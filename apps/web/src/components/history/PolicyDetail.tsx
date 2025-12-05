@@ -74,9 +74,19 @@ export function PolicyDetail({ policy, execution, onBack }: PolicyDetailProps) {
         {/* Error */}
         {policy.error && (
           <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-            <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Error</div>
+            <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-2">Error</div>
             <pre className="text-sm text-red-600 dark:text-red-300 whitespace-pre-wrap font-mono">
               {policy.error}
+            </pre>
+          </div>
+        )}
+        
+        {/* Error Screen - shown when policy failed and has screen capture */}
+        {policy.status === 'failed' && typeof policy.policy_data?.errorScreen === 'string' && (
+          <div className="p-3 rounded-lg bg-zinc-900 border border-zinc-700">
+            <div className="text-xs font-medium text-zinc-400 mb-2">Screen at Time of Error</div>
+            <pre className="text-xs text-green-400 whitespace-pre font-mono overflow-x-auto leading-tight">
+              {policy.policy_data.errorScreen}
             </pre>
           </div>
         )}
