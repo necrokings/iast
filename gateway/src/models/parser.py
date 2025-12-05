@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from src.models.ast import ASTItemResultMessage, ASTPausedMessage, ASTProgressMessage
+
 from .types import MessageType
 
 if TYPE_CHECKING:
@@ -36,6 +38,9 @@ if TYPE_CHECKING:
         | ASTRunMessage
         | ASTControlMessage
         | ASTStatusMessage
+        | ASTPausedMessage
+        | ASTProgressMessage
+        | ASTItemResultMessage
         | TN3270ScreenMessage
         | TN3270CursorMessage
     )

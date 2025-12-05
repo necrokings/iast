@@ -13,6 +13,7 @@ import {
   type ExecutionRecord,
   type PolicyRecord,
   getLocalDateString,
+  getUTCDateString,
   TabBar,
   DatePicker,
   EmptyPanel,
@@ -42,23 +43,23 @@ function HistoryPage() {
   const [hasMore, setHasMore] = useState(false)
   const [cursor, setCursor] = useState<string | undefined>()
   const [error, setError] = useState<string | null>(null)
-  
+
   // Selection state
   const [selectedExecution, setSelectedExecution] = useState<ExecutionRecord | null>(null)
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyRecord | null>(null)
-  
+
   // Policies state
   const [policies, setPolicies] = useState<PolicyRecord[]>([])
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(false)
-  
+
   const observerTarget = useRef<HTMLDivElement>(null)
-  
+
   // Live execution observer - observe both running and paused executions
   const isLive = selectedExecution?.status === 'running' || selectedExecution?.status === 'paused'
-  
-  const { 
-    status: observerStatus, 
-    progress: liveProgress, 
+
+  const {
+    status: observerStatus,
+    progress: liveProgress,
     policyResults: livePolicies,
     astStatus,
     isPaused,
@@ -87,11 +88,11 @@ function HistoryPage() {
         for (const lp of livePolicies) {
           allPolicies.set(lp.itemId, { status: lp.status })
         }
-        
+
         const successCount = Array.from(allPolicies.values()).filter(p => p.status === 'success').length
         const failedCount = Array.from(allPolicies.values()).filter(p => p.status === 'failed').length
         const skippedCount = Array.from(allPolicies.values()).filter(p => p.status === 'skipped').length
-        
+
         // Update the selected execution with new status
         setSelectedExecution((prev: ExecutionRecord | null) => prev ? {
           ...prev,
@@ -102,19 +103,19 @@ function HistoryPage() {
           failed_count: failedCount,
           skipped_count: skippedCount,
         } : null)
-        
+
         // Also update in the executions list
-        setExecutions((prev: ExecutionRecord[]) => prev.map(e => 
+        setExecutions((prev: ExecutionRecord[]) => prev.map(e =>
           e.execution_id === selectedExecution.execution_id
             ? {
-                ...e,
-                status: newStatus,
-                completed_at: new Date().toISOString(),
-                message: astStatus.message,
-                success_count: successCount,
-                failed_count: failedCount,
-                skipped_count: skippedCount,
-              }
+              ...e,
+              status: newStatus,
+              completed_at: new Date().toISOString(),
+              message: astStatus.message,
+              success_count: successCount,
+              failed_count: failedCount,
+              skipped_count: skippedCount,
+            }
             : e
         ))
       }
@@ -125,30 +126,30 @@ function HistoryPage() {
   const selectedExecutionIdRef = useRef(selectedExecution?.execution_id)
   const selectedExecutionStatusRef = useRef(selectedExecution?.status)
   const isPausedInitializedRef = useRef(false)
-  
+
   useEffect(() => {
     isPausedInitializedRef.current = false
   }, [selectedExecution?.execution_id])
-  
+
   if (selectedExecutionIdRef.current !== selectedExecution?.execution_id) {
     selectedExecutionIdRef.current = selectedExecution?.execution_id
     selectedExecutionStatusRef.current = selectedExecution?.status
   }
-  
+
   useEffect(() => {
     if (!isLive || !selectedExecutionIdRef.current) return
-    
+
     if (!isPausedInitializedRef.current) {
       isPausedInitializedRef.current = true
       return
     }
-    
+
     const newStatus = isPaused ? 'paused' : 'running'
     if (newStatus !== selectedExecutionStatusRef.current) {
       const executionId = selectedExecutionIdRef.current
       selectedExecutionStatusRef.current = newStatus
       setSelectedExecution((prev: ExecutionRecord | null) => prev ? { ...prev, status: newStatus } : null)
-      setExecutions((prev: ExecutionRecord[]) => prev.map(e => 
+      setExecutions((prev: ExecutionRecord[]) => prev.map(e =>
         e.execution_id === executionId ? { ...e, status: newStatus } : e
       ))
     }
@@ -162,7 +163,8 @@ function HistoryPage() {
     setError(null)
 
     try {
-      const data = await api.getExecutions(selectedDate, activeTab, 30, reset ? undefined : cursor)
+      const utcDate = getUTCDateString(new Date(selectedDate + 'T12:00:00'))
+      const data = await api.getExecutions(utcDate, activeTab, 30, reset ? undefined : cursor)
       setExecutions((prev: ExecutionRecord[]) => reset ? data.executions : [...prev, ...data.executions])
       setHasMore(data.hasMore)
       setCursor(data.nextCursor)
@@ -218,7 +220,7 @@ function HistoryPage() {
       },
       { threshold: 0.1 }
     )
-    
+
     if (observerTarget.current) observer.observe(observerTarget.current)
     return () => observer.disconnect()
   }, [hasMore, isLoadingExecutions, fetchExecutions])
@@ -255,7 +257,7 @@ function HistoryPage() {
           </div>
           <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
         </div>
-        
+
         {/* List */}
         <div className="flex-1 overflow-auto p-3 space-y-2">
           {error && (
@@ -263,7 +265,7 @@ function HistoryPage() {
               {error}
             </div>
           )}
-          
+
           {filteredExecutions.map((execution) => (
             <ExecutionListItem
               key={execution.execution_id}
@@ -272,15 +274,15 @@ function HistoryPage() {
               onClick={() => handleSelectExecution(execution)}
             />
           ))}
-          
+
           <div ref={observerTarget} className="h-2" />
-          
+
           {isLoadingExecutions && (
             <div className="flex justify-center py-4">
               <div className="w-5 h-5 border-2 border-gray-200 dark:border-zinc-700 border-t-blue-500 rounded-full animate-spin" />
             </div>
           )}
-          
+
           {!isLoadingExecutions && filteredExecutions.length === 0 && (
             <EmptyPanel message="No executions found" />
           )}

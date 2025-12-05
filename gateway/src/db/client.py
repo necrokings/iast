@@ -65,7 +65,7 @@ class DynamoDBClient:
             aws_access_key_id=AWS_ACCESS_KEY_ID,
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
         )
-        self._table = self._resource.Table(table_name)
+        self._table = self._resource.Table(table_name)  # type: ignore[attr-defined]
         log.info(
             "DynamoDB client initialized", endpoint=DYNAMODB_ENDPOINT, table=table_name
         )

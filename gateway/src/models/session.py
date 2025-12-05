@@ -68,7 +68,7 @@ def create_session_created_message(
 ) -> SessionCreatedMessage:
     """Create a session created message."""
     return SessionCreatedMessage(
-        session_id=session_id,
+        sessionId=session_id,
         meta=SessionCreatedMeta(shell=shell, pid=pid),
     )
 
@@ -99,7 +99,7 @@ def create_session_destroyed_message(
 ) -> SessionDestroyedMessage:
     """Create a session destroyed message."""
     return SessionDestroyedMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=reason,
         meta=SessionDestroyedMeta(),
     )

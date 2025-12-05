@@ -14,12 +14,12 @@ Provides convenient methods for:
 This service wraps tnz operations for use in automation scripts.
 """
 
-import time
 import re
-import structlog
-
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+import structlog
 
 if TYPE_CHECKING:
     from tnz.tnz import Tnz
@@ -77,7 +77,7 @@ class Host:
         host.wait()
     """
 
-    def __init__(self, tnz: Tnz) -> None:
+    def __init__(self, tnz: "Tnz") -> None:
         """
         Initialize Host with a tnz session.
 
@@ -188,9 +188,7 @@ class Host:
             r"(Passcode\.+\s+)(\S+)", r"\1******", screen_content, flags=re.IGNORECASE
         )
         # Remove empty new lines from screen content which only has row numbers
-        screen_content = re.sub(
-            r"^\s*\d{2}\s*$\n", "", screen_content, flags=re.MULTILINE
-        )
+        screen_content = re.sub(r"^\s*\d{2}\s*$\n", "", screen_content, flags=re.MULTILINE)
         seperator = "=" * 80
         if title:
             title_text = f" {title} "
@@ -373,9 +371,7 @@ class Host:
         """
         return [f for f in self.get_fields() if f.protected]
 
-    def find_field_by_label(
-        self, label: str, case_sensitive: bool = False
-    ) -> ScreenField | None:
+    def find_field_by_label(self, label: str, case_sensitive: bool = False) -> ScreenField | None:
         """
         Find an unprotected field by its label.
 
@@ -487,9 +483,7 @@ class Host:
             self._tnz.key_eraseeof()
         self._tnz.key_data(value)
 
-    def fill_field_by_label(
-        self, label: str, value: str, case_sensitive: bool = False
-    ) -> bool:
+    def fill_field_by_label(self, label: str, value: str, case_sensitive: bool = False) -> bool:
         """
         Find a field by its label and fill it with a value.
 

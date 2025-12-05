@@ -22,7 +22,7 @@ export function LoginASTForm(): React.ReactNode {
 
   // Policy numbers input
   const [policyInput, setPolicyInput] = useState<string>('');
-  
+
   // Parse and validate policy numbers
   const { validPolicies, invalidCount } = useMemo(() => {
     const parsed = parsePolicyNumbers(policyInput);
@@ -42,12 +42,12 @@ export function LoginASTForm(): React.ReactNode {
           password: credentials.password,
           userId: user?.id || 'anonymous',
         };
-        
+
         // Include policy numbers if provided
         if (validPolicies.length > 0) {
           payload.policyNumbers = validPolicies;
         }
-        
+
         executeAST('login', payload);
       }
     },
@@ -168,8 +168,8 @@ export function LoginASTForm(): React.ReactNode {
           disabled={!isValid}
           isLoading={isRunning}
         >
-          {isRunning 
-            ? (hasPolicies ? 'Processing...' : 'Running...') 
+          {isRunning
+            ? (hasPolicies ? 'Processing...' : 'Running...')
             : (validPolicies.length > 0 ? `Run Login + ${validPolicies.length} Policies` : 'Run Login')
           }
         </Button>

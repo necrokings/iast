@@ -17,4 +17,4 @@ class DataMessage(BaseMessage):
 
 def create_data_message(session_id: str, data: str) -> DataMessage:
     """Create a data message."""
-    return DataMessage(session_id=session_id, payload=data)
+    return DataMessage(sessionId=session_id, payload=data)

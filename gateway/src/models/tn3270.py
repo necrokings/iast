@@ -64,7 +64,7 @@ def create_tn3270_screen_message(
 ) -> TN3270ScreenMessage:
     """Create a TN3270 screen message."""
     return TN3270ScreenMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=ansi_data,
         meta=TN3270ScreenMeta(
             fields=fields,
@@ -83,7 +83,7 @@ def create_tn3270_cursor_message(
 ) -> TN3270CursorMessage:
     """Create a TN3270 cursor position message."""
     return TN3270CursorMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload="",
         meta=TN3270CursorMeta(row=row, col=col),
     )

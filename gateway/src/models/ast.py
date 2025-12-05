@@ -93,7 +93,7 @@ class ASTStatusMeta(BaseModel):
     ast_name: str = Field(alias="astName")
     """Name of the AST."""
 
-    status: Literal["pending", "running", "success", "failed", "timeout"]
+    status: Literal["pending", "running", "success", "failed", "timeout", "cancelled"]
     """Current status of the AST."""
 
     message: str | None = None
@@ -209,7 +209,7 @@ class ASTItemResultMessage(BaseMessage):
 def create_ast_status_message(
     session_id: str,
     ast_name: str,
-    status: Literal["pending", "running", "success", "failed", "timeout"],
+    status: Literal["pending", "running", "success", "failed", "timeout", "cancelled"],
     message: str | None = None,
     error: str | None = None,
     duration: float | None = None,
@@ -217,10 +217,10 @@ def create_ast_status_message(
 ) -> ASTStatusMessage:
     """Create an AST status message."""
     return ASTStatusMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=message or "",
         meta=ASTStatusMeta(
-            ast_name=ast_name,
+            astName=ast_name,
             status=status,
             message=message,
             error=error,
@@ -245,16 +245,16 @@ def create_ast_progress_message(
     """Create an AST progress message."""
     percent = round((current / total) * 100) if total > 0 else 0
     return ASTProgressMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=message or f"Processing {current}/{total}",
         meta=ASTProgressMeta(
-            execution_id=execution_id,
-            ast_name=ast_name,
+            executionId=execution_id,
+            astName=ast_name,
             current=current,
             total=total,
             percent=percent,
-            current_item=current_item,
-            item_status=item_status,
+            currentItem=current_item,
+            itemStatus=item_status,
             message=message,
         ),
     )
@@ -271,13 +271,13 @@ def create_ast_item_result_message(
 ) -> ASTItemResultMessage:
     """Create an AST item result message."""
     return ASTItemResultMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=item_id,
         meta=ASTItemResultMeta(
-            execution_id=execution_id,
-            item_id=item_id,
+            executionId=execution_id,
+            itemId=item_id,
             status=status,
-            duration_ms=duration_ms,
+            durationMs=duration_ms,
             error=error,
             data=data,
         ),
@@ -291,7 +291,7 @@ def create_ast_paused_message(
 ) -> ASTPausedMessage:
     """Create an AST paused status message."""
     return ASTPausedMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=message or ("Paused" if paused else "Resumed"),
         meta=ASTPausedMeta(
             paused=paused,

@@ -21,7 +21,7 @@ export function ASTPanel(): React.ReactNode {
     <div className="space-y-4">
       {/* AST Selector */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 dark:text-zinc-300 mb-1.5">
+        <label className="block text-left text-xs font-medium text-gray-700 dark:text-zinc-300 mb-1.5">
           Select Automation
         </label>
         <ASTSelector

@@ -27,7 +27,7 @@ class ErrorMessage(BaseMessage):
 def create_error_message(session_id: str, code: str, message: str) -> ErrorMessage:
     """Create an error message."""
     return ErrorMessage(
-        session_id=session_id,
+        sessionId=session_id,
         payload=message,
         meta=ErrorMeta(code=code),
     )

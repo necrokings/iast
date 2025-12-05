@@ -17,26 +17,28 @@ thread to avoid conflicts with the main asyncio event loop.
 import asyncio
 import concurrent.futures
 import threading
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
+from uuid import uuid4
 
 import structlog
 
+from ...ast import LoginAST
+from ...ast.base import AST
 from ...core import ErrorCodes, TerminalError, TN3270Config
 from ...models import (
-    ASTRunMessage,
     ASTControlMessage,
+    ASTRunMessage,
     DataMessage,
     ResizeMessage,
     SessionCreateMessage,
     SessionDestroyMessage,
     TN3270Field,
-    create_ast_status_message,
-    create_ast_progress_message,
     create_ast_item_result_message,
     create_ast_paused_message,
+    create_ast_progress_message,
+    create_ast_status_message,
     create_data_message,
     create_error_message,
     create_session_created_message,
@@ -45,8 +47,6 @@ from ...models import (
     parse_message,
     serialize_message,
 )
-from ...ast import LoginAST
-from ...ast.base import AST
 from .host import Host
 from .renderer import TN3270Renderer
 
@@ -383,7 +383,7 @@ class TN3270Manager:
         self,
         session: TN3270Session,
         ast_name: str,
-        params: dict | None = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         """Run an AST (Automated Streamlined Transaction)."""
         # Check if there's already an AST running (including paused)
@@ -410,7 +410,6 @@ class TN3270Manager:
 
         # Generate unique execution_id for this AST run
         # session_id is used for WebSocket channel, execution_id is unique per run
-        from uuid import uuid4
 
         execution_id = str(uuid4())
 
@@ -430,7 +429,9 @@ class TN3270Manager:
             current: int,
             total: int,
             current_item: str | None = None,
-            item_status: str | None = None,
+            item_status: (
+                Literal["pending", "running", "success", "failed", "skipped"] | None
+            ) = None,
             message: str | None = None,
         ) -> None:
             """Thread-safe progress callback."""
@@ -455,7 +456,7 @@ class TN3270Manager:
         # Create thread-safe item result callback
         def on_item_result(
             item_id: str,
-            status: str,
+            status: Literal["success", "failed", "skipped"],
             duration_ms: int | None = None,
             error: str | None = None,
             data: dict | None = None,

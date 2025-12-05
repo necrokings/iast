@@ -9,3 +9,9 @@ export function getLocalDateString(date: Date = new Date()): string {
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+/** Get UTC date string in YYYY-MM-DD format */
+export function getUTCDateString(date: Date = new Date()): string {
+  return date.toISOString().split('T')[0]
+}
+

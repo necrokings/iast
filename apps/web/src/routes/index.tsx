@@ -3,7 +3,10 @@
 // ============================================================================
 
 import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import SessionSelector from '../components/SessionSelector'
+import { getStoredSessionId, setStoredSessionId } from '../utils/storage'
+import { generateSessionId } from '@terminal/shared'
 import { useAST } from '../hooks/useAST'
 import { Terminal } from '../components/Terminal'
 import { ASTPanel } from '../ast'
@@ -75,20 +78,46 @@ function TerminalPage() {
     [handleASTItemResult]
   )
 
-  return (
-    <main className="flex-1 overflow-auto flex p-4 gap-4 bg-white dark:bg-zinc-950">
-      <Terminal
-        autoConnect={true}
-        onReady={handleTerminalReady}
-        onASTStatus={handleASTStatus}
-        onASTProgress={handleASTProgressUpdate}
-        onASTItemResult={handleASTItemResultUpdate}
-        onASTPaused={handleASTPaused}
-      />
+  const [sessionId, setSessionId] = useState<string>(() => {
+    const stored = getStoredSessionId()
+    if (stored) return stored
+    const gen = generateSessionId()
+    try {
+      setStoredSessionId(gen)
+    } catch {
+      // ignore
+    }
+    return gen
+  })
 
-      {/* Side panel for AST controls */}
-      <div className="w-[400px] flex-shrink-0">
-        <ASTPanel />
+  return (
+    <main className="flex-1 overflow-auto flex flex-col p-4 gap-4 bg-white dark:bg-zinc-950">
+      <div className="flex items-center justify-between">
+        <SessionSelector
+          value={sessionId}
+          onChange={(id) => {
+            setStoredSessionId(id)
+            setSessionId(id)
+          }}
+        />
+      </div>
+
+      <div className="flex-1 flex gap-4">
+        <Terminal
+          key={sessionId}
+          sessionId={sessionId}
+          autoConnect={true}
+          onReady={handleTerminalReady}
+          onASTStatus={handleASTStatus}
+          onASTProgress={handleASTProgressUpdate}
+          onASTItemResult={handleASTItemResultUpdate}
+          onASTPaused={handleASTPaused}
+        />
+
+        {/* Side panel for AST controls */}
+        <div className="w-[400px] flex-shrink-0">
+          <ASTPanel />
+        </div>
       </div>
     </main>
   )
