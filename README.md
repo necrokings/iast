@@ -118,7 +118,7 @@ terminal/
 - pnpm 10+
 - Python 3.12+
 - uv (Python package manager)
-- Docker (for Valkey and optional DynamoDB Local)
+- Docker (for Valkey and DynamoDB Local)
 
 ## Quick Start
 
@@ -127,6 +127,9 @@ terminal/
 pnpm install
 cd gateway && uv sync && cd ..
 
+# Start infrastructure (Valkey + DynamoDB)
+docker compose -f infra/docker-compose.dev.yml up -d
+
 # Start all services
 pnpm dev
 
@@ -134,6 +137,7 @@ pnpm dev
 # - Web:    http://localhost:5173
 # - API:    http://localhost:3000
 # - Valkey: localhost:6379
+# - DynamoDB: localhost:8042
 ```
 
 ### Demo User
@@ -185,6 +189,11 @@ HOST=0.0.0.0
 VALKEY_HOST=localhost
 VALKEY_PORT=6379
 JWT_SECRET=your-secret-key
+DYNAMODB_ENDPOINT=http://localhost:8042
+DYNAMODB_REGION=us-east-1
+DYNAMODB_TABLE_NAME=terminal
+DYNAMODB_ACCESS_KEY_ID=dummy
+DYNAMODB_SECRET_ACCESS_KEY=dummy
 ```
 
 ### Web (`apps/web/.env`)

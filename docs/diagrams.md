@@ -21,21 +21,31 @@ flowchart TB
         _(JWT + bcrypt)_`"]
         Session["`Session Manager`"]
         ValkeyClient1["`Valkey Client`"]
+        DynamoDBClient1["`DynamoDB Client`"]
     end
 
     subgraph Valkey["` **Valkey** _(Redis-compatible)_ `"]
         direction TB
         PubSub["`**Pub/Sub Channels**`"]
         GatewayCtrl["`gateway.control`"]
-        PtyInput["`pty.input.*`"]
-        PtyOutput["`pty.output.*`"]
-        PtyControl["`pty.control.*`"]
+        Tn3270Input["`tn3270.input.*`"]
+        Tn3270Output["`tn3270.output.*`"]
+        Tn3270Control["`tn3270.control.*`"]
+    end
+
+    subgraph DynamoDB["` **DynamoDB** _(AWS/NoSQL)_ `"]
+        direction TB
+        UsersTable["`Users Table`"]
+        SessionsTable["`Sessions Table`"]
+        ExecutionsTable["`Executions Table`"]
+        PoliciesTable["`Policies Table`"]
     end
 
     subgraph Gateway["` **TN3270 Gateway** _(Python)_ `"]
         direction TB
         AsyncIO["`**asyncio** Runtime`"]
         ValkeyClient2["`Valkey Client`"]
+        DynamoDBClient2["`DynamoDB Client`"]
         Tn3270Manager["`TN3270 Manager`"]
         Tn3270Session1["`TN3270 Session 1`"]
         Tn3270Session2["`TN3270 Session 2`"]
@@ -43,17 +53,21 @@ flowchart TB
     end
 
     React --> Auth & XTerm & Theme
-    
+
     Auth -->|"`**HTTP REST**`"| AuthService
     XTerm -->|"`**WebSocket**`"| WS
-    
+
     WS --> Session & ValkeyClient1
     AuthService --> Session
-    
+    Session --> DynamoDBClient1
+    DynamoDBClient1 -->|"`_Read/Write_`"| UsersTable & SessionsTable
+
     ValkeyClient1 -->|"`_Publish_`"| PubSub
     PubSub -->|"`_Subscribe_`"| ValkeyClient2
-    
+
     ValkeyClient2 --> Tn3270Manager
+    Tn3270Manager --> DynamoDBClient2
+    DynamoDBClient2 -->|"`_Read/Write_`"| ExecutionsTable & PoliciesTable
     Tn3270Manager --> Tn3270Session1 & Tn3270Session2 & Tn3270SessionN
 ```
 
@@ -226,11 +240,15 @@ flowchart BT
         _Python TN3270_`"]
         Valkey["`**Valkey**
         _Docker_`"]
+        DynamoDB["`**DynamoDB**
+        _AWS/NoSQL_`"]
     end
 
     Web --> Shared
     API --> Shared
     API <--> Valkey <--> Gateway
+    API --> DynamoDB
+    Gateway --> DynamoDB
     Web --> API
 ```
 

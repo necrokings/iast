@@ -307,7 +307,7 @@ Browser              API Server              Valkey              Gateway
 - pnpm 10+
 - Python 3.12+
 - uv (Python package manager)
-- Docker (for Valkey)
+- Docker (for Valkey and DynamoDB Local)
 
 ### Quick Start
 
@@ -316,13 +316,17 @@ Browser              API Server              Valkey              Gateway
 pnpm install
 cd gateway && uv sync && cd ..
 
+# Start infrastructure (Valkey + DynamoDB)
+docker compose -f infra/docker-compose.dev.yml up -d
+
 # Start all services
 pnpm dev
 
 # Services will be available at:
 # - Web:    http://localhost:5173
-# - API:    http://localhost:3001
+# - API:    http://localhost:3000
 # - Valkey: localhost:6379
+# - DynamoDB: localhost:8042
 ```
 
 ### Demo User
