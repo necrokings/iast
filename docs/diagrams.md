@@ -32,14 +32,14 @@ flowchart TB
         PtyControl["`pty.control.*`"]
     end
 
-    subgraph Gateway["` **PTY Gateway** _(Python)_ `"]
+    subgraph Gateway["` **TN3270 Gateway** _(Python)_ `"]
         direction TB
         AsyncIO["`**asyncio** Runtime`"]
         ValkeyClient2["`Valkey Client`"]
-        PTYManager["`PTY Manager`"]
-        PTYSession1["`PTY Session 1`"]
-        PTYSession2["`PTY Session 2`"]
-        PTYSessionN["`PTY Session N`"]
+        Tn3270Manager["`TN3270 Manager`"]
+        Tn3270Session1["`TN3270 Session 1`"]
+        Tn3270Session2["`TN3270 Session 2`"]
+        Tn3270SessionN["`TN3270 Session N`"]
     end
 
     React --> Auth & XTerm & Theme
@@ -53,8 +53,8 @@ flowchart TB
     ValkeyClient1 -->|"`_Publish_`"| PubSub
     PubSub -->|"`_Subscribe_`"| ValkeyClient2
     
-    ValkeyClient2 --> PTYManager
-    PTYManager --> PTYSession1 & PTYSession2 & PTYSessionN
+    ValkeyClient2 --> Tn3270Manager
+    Tn3270Manager --> Tn3270Session1 & Tn3270Session2 & Tn3270SessionN
 ```
 
 ## Authentication Flow
@@ -106,54 +106,54 @@ sequenceDiagram
     participant A as ⚡ API Server
     participant V as 📡 Valkey
     participant G as 🐍 Gateway
-    participant P as 💻 PTY Process
+    participant T as 🖥️ TN3270 Host
 
     rect rgb(40, 60, 40)
-        Note over B,P: Session Creation
+        Note over B,T: Session Creation
         B->>+A: WebSocket Connect<br/>/terminal/:sessionId?token=xxx
         A->>A: Validate JWT
         A->>-A: Create session record
-        
+
         B->>+A: session.create message
         A->>V: PUBLISH gateway.control
         V->>+G: MESSAGE
-        G->>+P: fork() + exec(shell)
-        G->>G: Subscribe to pty.input/:id
-        G->>V: PUBLISH pty.output/:id<br/>(session.created)
+        G->>+T: connect(host, port)
+        G->>G: Subscribe to tn3270.input/:id
+        G->>V: PUBLISH tn3270.output/:id<br/>(session.created)
         V->>A: MESSAGE
         A-->>-B: session.created message
     end
 
     rect rgb(40, 50, 60)
-        Note over B,P: Data Exchange
+        Note over B,T: Data Exchange
         B->>A: data message (keystroke)
-        A->>V: PUBLISH pty.input/:id
+        A->>V: PUBLISH tn3270.input/:id
         V->>G: MESSAGE
-        G->>P: write(data)
-        P->>G: read(output)
-        G->>V: PUBLISH pty.output/:id
+        G->>T: send(data)
+        T->>G: receive(output)
+        G->>V: PUBLISH tn3270.output/:id
         V->>A: MESSAGE
         A->>B: data message (output)
     end
 
-    rect rgb(60, 50, 40)
-        Note over B,P: Terminal Resize
+    rect rgb(40, 50, 60)
+        Note over B,T: Terminal Resize
         B->>A: resize message {cols, rows}
-        A->>V: PUBLISH pty.control/:id
+        A->>V: PUBLISH tn3270.control/:id
         V->>G: MESSAGE
-        G->>P: ioctl(TIOCSWINSZ)
+        G->>T: send resize command
     end
 
     rect rgb(60, 40, 40)
-        Note over B,P: Session Cleanup
+        Note over B,T: Session Cleanup
         B->>A: WebSocket Close
-        A->>V: PUBLISH pty.control/:id<br/>(session.destroy)
+        A->>V: PUBLISH tn3270.control/:id<br/>(session.destroy)
         V->>G: MESSAGE
-        G->>P: SIGTERM → SIGKILL
-        deactivate P
+        G->>T: disconnect
+        deactivate T
         G->>G: Unsubscribe channels
         deactivate G
-        G->>V: PUBLISH pty.output/:id<br/>(session.destroyed)
+        G->>V: PUBLISH tn3270.output/:id<br/>(session.destroyed)
     end
 ```
 
@@ -174,16 +174,16 @@ flowchart LR
     subgraph Valkey["` **Valkey Pub/Sub** `"]
         direction TB
         GC["`📣 gateway.control`"]
-        PI["`⌨️ pty.input.*`"]
-        PO["`📤 pty.output.*`"]
-        PC["`🎛️ pty.control.*`"]
+        PI["`⌨️ tn3270.input.*`"]
+        PO["`📤 tn3270.output.*`"]
+        PC["`🎛️ tn3270.control.*`"]
     end
 
     subgraph Gateway["` **Python Gateway** `"]
         direction TB
         VC2["`Valkey Client`"]
-        PM["`🔧 PTY Manager`"]
-        PTY["`💻 PTY Process`"]
+        PM["`🔧 TN3270 Manager`"]
+        PTY["`🖥️ TN3270 Host`"]
     end
 
     XT -->|"`_session.create_
@@ -223,7 +223,7 @@ flowchart BT
 
     subgraph External["` **🔧 External** `"]
         Gateway["`**gateway**
-        _Python PTY_`"]
+        _Python TN3270_`"]
         Valkey["`**Valkey**
         _Docker_`"]
     end
@@ -267,32 +267,32 @@ stateDiagram-v2
     end note
 ```
 
-## PTY Session States
+## TN3270 Session States
 
 ```mermaid
 stateDiagram-v2
     direction TB
-    
+
     [*] --> Creating: session.create received
-    
-    Creating --> Active: ✅ fork() + exec() success
-    Creating --> Failed: ❌ spawn error
-    
+
+    Creating --> Active: ✅ connect success
+    Creating --> Failed: ❌ connection error
+
     state Active {
         direction LR
         [*] --> Running
         Running --> Running: I/O operations
         Running --> Resizing: resize message
-        Resizing --> Running: ioctl complete
+        Resizing --> Running: resize sent
     }
-    
+
     Active --> Destroying: session.destroy / disconnect
-    Active --> Exited: Process terminated (exit code)
-    
-    Destroying --> Cleanup: SIGTERM sent
+    Active --> Disconnected: Connection lost
+
+    Destroying --> Cleanup: disconnect sent
     Cleanup --> [*]: Resources freed
-    
-    Exited --> Cleanup: Detected by read()
+
+    Disconnected --> Cleanup: Detected by read()
     Failed --> [*]: Error sent to client
 ```
 
@@ -327,7 +327,7 @@ flowchart TB
         _Pub/Sub + Persistence_`"]
     end
 
-    subgraph PTYGateways["` **🐍 PTY Gateways (Scalable)** `"]
+    subgraph Tn3270Gateways["` **🐍 TN3270 Gateways (Scalable)** `"]
         direction LR
         G1["`Gateway 1
         _10 sessions max_`"]

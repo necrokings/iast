@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a full-stack web-based terminal application that provides secure, real-time shell access through a browser. The architecture follows a microservices pattern with clear separation of concerns.
+This is a full-stack web-based terminal application that provides secure, real-time TN3270 terminal emulation through a browser. The architecture follows a microservices pattern with clear separation of concerns.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -36,8 +36,8 @@ This is a full-stack web-based terminal application that provides secure, real-t
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
 │  │                         Pub/Sub Channels                                │ │
 │  │  ┌──────────────────┐  ┌─────────────────┐  ┌──────────────────────┐    │ │
-│  │  │ gateway.control  │  │ pty.input.<id>  │  │  pty.output.<id>     │    │ │
-│  │  │ (session create) │  │ (user keystrokes)│  │  (shell output)      │    │ │
+│  │  │ gateway.control  │  │ tn3270.input.<id>│  │  tn3270.output.<id>  │    │ │
+│  │  │ (session create) │  │ (user keystrokes)│  │  (TN3270 output)     │    │ │
 │  │  └──────────────────┘  └─────────────────┘  └──────────────────────┘    │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -45,12 +45,12 @@ This is a full-stack web-based terminal application that provides secure, real-t
                                       │ Pub/Sub (Redis Protocol)
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          PTY Gateway (Python)                                │
+│                          TN3270 Gateway (Python)                                │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                    asyncio + redis-py + pty                             │ │
+│  │                    asyncio + redis-py + tn3270                          │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────┐   │ │
-│  │  │ Valkey Client│  │  PTY Manager │  │      PTY Sessions            │   │ │
-│  │  │  (Pub/Sub)   │  │ (fork/exec)  │  │   (zsh/bash processes)       │   │ │
+│  │  │ Valkey Client│  │ TN3270 Manager│  │      TN3270 Sessions         │   │ │
+│  │  │  (Pub/Sub)   │  │ (connect)    │  │   (TN3270 connections)       │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────────────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -85,13 +85,14 @@ terminal/
 │           ├── auth.ts         # Auth-related types
 │           └── utils.ts        # Shared utilities
 │
-├── gateway/                    # Python PTY gateway
+├── gateway/                    # Python TN3270 gateway
 │   └── src/
 │       ├── app.py              # Main entry point
-│       ├── pty_manager.py      # PTY session management
+│       ├── tn3270_manager.py   # TN3270 session management
 │       ├── valkey_client.py    # Async Valkey client
 │       ├── models.py           # Pydantic message models
-│       └── config.py           # Gateway configuration
+│       ├── config.py           # Gateway configuration
+│       └── tn3270_client.py    # TN3270 protocol client
 │
 ├── infra/
 │   └── docker-compose.dev.yml  # Valkey container for development
@@ -135,7 +136,7 @@ terminal/
 - WebSocket endpoint for terminal connections
 - JWT token validation
 - Session management
-- Message routing between browser and PTY gateway via Valkey
+- Message routing between browser and TN3270 gateway via Valkey
 
 **Key Files**:
 
@@ -186,21 +187,22 @@ interface MessageEnvelope {
 }
 ```
 
-### 4. PTY Gateway (`gateway`)
+### 4. TN3270 Gateway (`gateway`)
 
 **Technology**: Python 3.12+, asyncio, Pydantic v2, redis-py, structlog
 
 **Responsibilities**:
 
-- Spawn and manage PTY (pseudo-terminal) processes
-- Execute shell commands (zsh/bash)
+- Establish and manage TN3270 connections to mainframe systems
+- Handle TN3270 protocol communication
 - Handle terminal resize events
-- Stream I/O between PTY and Valkey pub/sub
+- Stream I/O between TN3270 and Valkey pub/sub
 
 **Key Files**:
 
 - `app.py` - Main entry point with signal handling
-- `pty_manager.py` - PTY session lifecycle management
+- `tn3270_manager.py` - TN3270 session lifecycle management
+- `tn3270_client.py` - TN3270 protocol client
 - `valkey_client.py` - Async Valkey client for pub/sub
 - `models.py` - Pydantic models matching TypeScript types
 
@@ -219,9 +221,9 @@ interface MessageEnvelope {
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
 | `gateway.control` | API → Gateway | Session create/destroy commands |
-| `pty.input.<sessionId>` | API → Gateway | User keystrokes |
-| `pty.output.<sessionId>` | Gateway → API | Shell output |
-| `pty.control.<sessionId>` | API → Gateway | Resize events |
+| `tn3270.input.<sessionId>` | API → Gateway | User keystrokes |
+| `tn3270.output.<sessionId>` | Gateway → API | TN3270 output |
+| `tn3270.control.<sessionId>` | API → Gateway | Resize events |
 
 ## Data Flow
 
@@ -257,22 +259,22 @@ Browser              API Server              Valkey              Gateway
    │                     │────────────────────>│                    │
    │                     │                     │ MESSAGE            │
    │                     │                     │───────────────────>│
-   │                     │                     │                    │ fork PTY
-   │                     │                     │                    │ exec shell
+   │                     │                     │ connect TN3270
+   │                     │                     │ establish session
    │                     │                     │ PUBLISH            │
-   │                     │                     │ pty.output.<id>    │
+   │                     │                     │ tn3270.output.<id> │
    │                     │<────────────────────│<───────────────────│
    │ session.created     │                     │                    │
    │<────────────────────│                     │                    │
    │                     │                     │                    │
    │ data (keystroke)    │ PUBLISH             │                    │
-   │────────────────────>│ pty.input.<id>      │                    │
+   │────────────────────>│ tn3270.input.<id>   │                    │
    │                     │────────────────────>│ MESSAGE            │
    │                     │                     │───────────────────>│
-   │                     │                     │                    │ write to PTY
+   │                     │                     │                    │ send to TN3270
    │                     │                     │                    │
-   │                     │                     │ PUBLISH            │ read from PTY
-   │                     │                     │ pty.output.<id>    │
+   │                     │                     │ PUBLISH            │ receive from TN3270
+   │                     │                     │ tn3270.output.<id> │
    │ data (output)       │<────────────────────│<───────────────────│
    │<────────────────────│                     │                    │
 ```
@@ -291,9 +293,9 @@ Browser              API Server              Valkey              Gateway
 - Token validated before establishing connection
 - Invalid tokens result in immediate connection close (code 1008)
 
-### PTY Security
+### TN3270 Security
 
-- Each session runs in isolated PTY
+- Each session establishes secure TN3270 connections
 - Sessions tied to authenticated users
 - Graceful cleanup on disconnect
 
@@ -335,7 +337,7 @@ A demo user is automatically created on API startup:
 ### Horizontal Scaling
 
 - **API Servers**: Stateless, can run multiple instances behind load balancer
-- **Gateways**: Each gateway handles multiple PTY sessions; add more for capacity
+- **Gateways**: Each gateway handles multiple TN3270 sessions; add more for capacity
 - **Valkey**: Single instance sufficient for moderate load; cluster for high availability
 
 ### Session Affinity
