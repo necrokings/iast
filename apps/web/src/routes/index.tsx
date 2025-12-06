@@ -279,8 +279,8 @@ function TerminalPage() {
             {tabs.length > 1 && editingTabId !== tab.id && (
               <button
                 className={`w-4 h-4 flex items-center justify-center rounded ${isTabRunningAST(tab.id)
-                    ? 'opacity-20 cursor-not-allowed'
-                    : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer'
+                  ? 'opacity-20 cursor-not-allowed'
+                  : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer'
                   } text-zinc-500 dark:text-zinc-400`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -356,11 +356,8 @@ function TabContent({
 
     const checkActiveExecution = async () => {
       try {
-        console.log('[checkActiveExecution] Checking for active execution, sessionId:', tab.sessionId);
         const execution = await getActiveExecution(tab.sessionId);
-        console.log('[checkActiveExecution] Result:', execution);
         if (execution && (execution.status === 'running' || execution.status === 'paused')) {
-          console.log('[checkActiveExecution] Restoring from execution:', execution);
           restoreFromExecution({
             ast_name: execution.ast_name,
             status: execution.status,
