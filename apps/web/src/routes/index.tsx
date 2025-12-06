@@ -6,13 +6,12 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import SessionSelector from '../components/SessionSelector';
 import { getStoredSessionId, setStoredSessionId, removeStoredSessionId } from '../utils/storage';
-import { getSessions, createSession } from '../services/session';
+import { getSessions } from '../services/session';
 import { useAST } from '../hooks/useAST';
 import { Terminal } from '../components/Terminal';
 import { ASTPanel } from '../ast';
 import type { ASTStatusMeta, ASTProgressMeta, ASTItemResultMeta } from '@terminal/shared';
 import type { ASTItemStatus } from '../ast/types';
-import type { UserSession } from '@terminal/shared';
 
 export const Route = createFileRoute('/')({
   component: TerminalPage,
@@ -89,6 +88,12 @@ function TerminalPage() {
   const [sessionId, setSessionId] = useState<string>('');
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
 
+  // Reset AST state whenever the session changes so UI (Pause/Stop) doesn't persist
+  // from the previous session.
+  useEffect(() => {
+    resetAST();
+  }, [sessionId, resetAST]);
+
   useEffect(() => {
     const initializeSession = async () => {
       try {
@@ -106,8 +111,8 @@ function TerminalPage() {
         }
 
         if (validSession) {
-          setSessionId(currentSessionId);
-          setStoredSessionId(currentSessionId);
+          setSessionId(currentSessionId ?? '');
+          setStoredSessionId(currentSessionId ?? '');
         } else {
           // No sessions available, set empty
           setSessionId('');
@@ -173,7 +178,7 @@ function TerminalPage() {
 
         {/* Side panel for AST controls */}
         <div className="w-[400px] flex-shrink-0">
-          <ASTPanel />
+          <ASTPanel key={sessionId} />
         </div>
       </div>
     </main>
