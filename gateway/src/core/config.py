@@ -11,6 +11,21 @@ load_dotenv()
 
 
 @dataclass(frozen=True)
+class DynamoDBConfig:
+    """DynamoDB connection configuration."""
+
+    endpoint: str = field(
+        default_factory=lambda: os.getenv("DYNAMODB_ENDPOINT", "http://127.0.0.1:8042")
+    )
+    region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
+    table_name: str = field(default_factory=lambda: os.getenv("DYNAMODB_TABLE", "terminal"))
+    access_key_id: str = field(default_factory=lambda: os.getenv("AWS_ACCESS_KEY_ID", "dummy"))
+    secret_access_key: str = field(
+        default_factory=lambda: os.getenv("AWS_SECRET_ACCESS_KEY", "dummy")
+    )
+
+
+@dataclass(frozen=True)
 class ValkeyConfig:
     """Valkey/Redis connection configuration."""
 
@@ -35,9 +50,7 @@ class TN3270Config:
     terminal_type: str = field(
         default_factory=lambda: os.getenv("TN3270_TERMINAL_TYPE", "IBM-3278-4-E")
     )
-    max_sessions: int = field(
-        default_factory=lambda: int(os.getenv("TN3270_MAX_SESSIONS", "10"))
-    )
+    max_sessions: int = field(default_factory=lambda: int(os.getenv("TN3270_MAX_SESSIONS", "10")))
     secure: bool = field(
         default_factory=lambda: os.getenv("TN3270_SECURE", "false").lower() == "true"
     )
@@ -49,6 +62,7 @@ class Config:
 
     valkey: ValkeyConfig = field(default_factory=ValkeyConfig)
     tn3270: TN3270Config = field(default_factory=TN3270Config)
+    dynamodb: DynamoDBConfig = field(default_factory=DynamoDBConfig)
 
 
 _config: Config | None = None

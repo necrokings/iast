@@ -17,7 +17,6 @@ GSI1: GSI1PK (email) for user lookup by email
 GSI2: GSI2PK (USER#<userId>#DATE#<date>), GSI2SK (started_at) for user's executions by date
 """
 
-import os
 from datetime import datetime
 from typing import Any
 
@@ -25,14 +24,9 @@ import boto3
 import structlog
 from boto3.dynamodb.conditions import Key
 
-log = structlog.get_logger()
+from ..core.config import DynamoDBConfig
 
-# Configuration
-DYNAMODB_ENDPOINT = os.getenv("DYNAMODB_ENDPOINT", "http://127.0.0.1:8042")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "dummy")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "dummy")
-TABLE_NAME = os.getenv("DYNAMODB_TABLE", "terminal")
+log = structlog.get_logger()
 
 
 # Key prefixes for single table design
@@ -49,33 +43,33 @@ class DynamoDBClient:
     DynamoDB client wrapper for single table design.
     """
 
-    def __init__(self, table_name: str = TABLE_NAME) -> None:
-        self._table_name = table_name
+    def __init__(self, config: DynamoDBConfig) -> None:
+        self._table_name = config.table_name
         self._resource = boto3.resource(
             "dynamodb",
-            endpoint_url=DYNAMODB_ENDPOINT,
-            region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            endpoint_url=config.endpoint,
+            region_name=config.region,
+            aws_access_key_id=config.access_key_id,
+            aws_secret_access_key=config.secret_access_key,
         )
         self._client = boto3.client(
             "dynamodb",
-            endpoint_url=DYNAMODB_ENDPOINT,
-            region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            endpoint_url=config.endpoint,
+            region_name=config.region,
+            aws_access_key_id=config.access_key_id,
+            aws_secret_access_key=config.secret_access_key,
         )
-        self._table = self._resource.Table(table_name)  # type: ignore[attr-defined]
+        self._table = self._resource.Table(config.table_name)  # type: ignore[attr-defined]
 
         # Validate connection by describing the table
         try:
-            self._client.describe_table(TableName=table_name)
+            self._client.describe_table(TableName=config.table_name)
             log.info("DynamoDB connection validated")
         except Exception as e:
             log.error("DynamoDB connection failed", error=str(e))
             raise RuntimeError(f"Cannot connect to DynamoDB: {e}")
 
-        log.info("DynamoDB client initialized", endpoint=DYNAMODB_ENDPOINT, table=table_name)
+        log.info("DynamoDB client initialized", endpoint=config.endpoint, table=config.table_name)
 
     @property
     def table(self) -> Any:
@@ -372,9 +366,13 @@ class DynamoDBClient:
 _client: DynamoDBClient | None = None
 
 
-def get_dynamodb_client() -> DynamoDBClient:
+def get_dynamodb_client(config: DynamoDBConfig | None = None) -> DynamoDBClient:
     """Get the singleton DynamoDB client instance."""
     global _client
     if _client is None:
-        _client = DynamoDBClient()
+        if config is None:
+            from ..core.config import get_config
+
+            config = get_config().dynamodb
+        _client = DynamoDBClient(config)
     return _client

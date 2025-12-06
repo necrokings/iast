@@ -19,6 +19,11 @@ COPY .env.example /app/.env.example
 ENV REDIS_URL="redis://host.docker.internal:6379"
 ENV METADATA_STORE="local"
 ENV IDLE_TIMEOUT_SECS=300
+ENV DYNAMODB_ENDPOINT="http://host.docker.internal:8042"
+ENV AWS_REGION="us-east-1"
+ENV DYNAMODB_TABLE="terminal"
+ENV AWS_ACCESS_KEY_ID="dummy"
+ENV AWS_SECRET_ACCESS_KEY="dummy"
 
 # Run the gateway using the module entrypoint
 CMD ["python", "-m", "src.app"]

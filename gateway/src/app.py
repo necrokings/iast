@@ -78,7 +78,7 @@ async def async_main() -> None:
     # Initialize DynamoDB client (validates connection)
     from .db import get_dynamodb_client
 
-    get_dynamodb_client()
+    get_dynamodb_client(config.dynamodb)
 
     # Initialize Valkey client
     valkey = await init_valkey_client(config.valkey)
