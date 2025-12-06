@@ -75,6 +75,11 @@ async def async_main() -> None:
         tn3270_max_sessions=config.tn3270.max_sessions,
     )
 
+    # Initialize DynamoDB client (validates connection)
+    from .db import get_dynamodb_client
+
+    get_dynamodb_client()
+
     # Initialize Valkey client
     valkey = await init_valkey_client(config.valkey)
 

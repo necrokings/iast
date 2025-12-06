@@ -18,12 +18,12 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import structlog
 
-from .base import AST, ASTResult, ASTStatus, ItemResult
 from ..db import get_dynamodb_client
+from .base import AST, ASTResult, ASTStatus, ItemResult
 
 if TYPE_CHECKING:
-    from ..services.tn3270.host import Host
     from ..db import DynamoDBClient
+    from ..services.tn3270.host import Host
 
 log = structlog.get_logger()
 
@@ -66,14 +66,8 @@ class LoginAST(AST):
     # ========================================================================
 
     def _init_db(self) -> None:
-        """Initialize DynamoDB client, failing silently if unavailable."""
-        try:
-            self._db = get_dynamodb_client()
-        except Exception as e:
-            log.warning(
-                "DynamoDB not available, continuing without persistence", error=str(e)
-            )
-            self._db = None
+        """Initialize DynamoDB client, required for persistence."""
+        self._db = get_dynamodb_client()
 
     def _save_policy_result(
         self,
@@ -86,9 +80,6 @@ class LoginAST(AST):
         policy_data: Optional[dict] = None,
     ) -> None:
         """Save a policy result to DynamoDB."""
-        if not self._db:
-            return
-
         try:
             data: dict[str, Any] = {
                 "status": status,
@@ -108,9 +99,7 @@ class LoginAST(AST):
                 data=data,
             )
         except Exception as e:
-            log.warning(
-                "Failed to save policy result", policy=policy_number, error=str(e)
-            )
+            log.warning("Failed to save policy result", policy=policy_number, error=str(e))
 
     def _create_execution_record(
         self,
@@ -120,9 +109,6 @@ class LoginAST(AST):
         started_at: datetime,
     ) -> None:
         """Create an execution record in DynamoDB."""
-        if not self._db:
-            return
-
         try:
             self._db.put_execution(
                 session_id=self._session_id,
@@ -153,9 +139,6 @@ class LoginAST(AST):
         error: Optional[str] = None,
     ) -> None:
         """Update execution record with final status."""
-        if not self._db:
-            return
-
         try:
             updates: dict[str, Any] = {
                 "status": status,
@@ -166,15 +149,9 @@ class LoginAST(AST):
             if error:
                 updates["error"] = error
             else:
-                updates["success_count"] = sum(
-                    1 for r in item_results if r.status == "success"
-                )
-                updates["failed_count"] = sum(
-                    1 for r in item_results if r.status == "failed"
-                )
-                updates["skipped_count"] = sum(
-                    1 for r in item_results if r.status == "skipped"
-                )
+                updates["success_count"] = sum(1 for r in item_results if r.status == "success")
+                updates["failed_count"] = sum(1 for r in item_results if r.status == "failed")
+                updates["skipped_count"] = sum(1 for r in item_results if r.status == "skipped")
 
             self._db.update_execution(
                 session_id=self._session_id,
@@ -438,9 +415,7 @@ class LoginAST(AST):
                 item_status="running",
                 message=f"Policy {current}/{total}: Phase 2 - Processing",
             )
-            success, error, policy_data = self._phase2_process_policy(
-                host, policy_number
-            )
+            success, error, policy_data = self._phase2_process_policy(host, policy_number)
             if not success:
                 raise Exception(f"Phase 2 failed: {error}")
 
@@ -490,9 +465,7 @@ class LoginAST(AST):
                 error=str(e),
                 policy_data={"errorScreen": error_screen} if error_screen else None,
             )
-            log.warning(
-                f"Policy {policy_number} failed", error=str(e), duration_ms=duration_ms
-            )
+            log.warning(f"Policy {policy_number} failed", error=str(e), duration_ms=duration_ms)
 
             # Try to recover by logging off
             try:
@@ -549,9 +522,7 @@ class LoginAST(AST):
                 # No policies - just do a single login/logoff cycle
                 log.info("No policies to process, doing single login/logoff cycle")
 
-                success, error, screenshots = self._phase1_login(
-                    host, username, password
-                )
+                success, error, screenshots = self._phase1_login(host, username, password)
                 all_screenshots.extend(screenshots)
                 if not success:
                     raise Exception(error)
@@ -616,9 +587,7 @@ class LoginAST(AST):
                 )
                 log.info("Login AST cancelled", username=username)
             else:
-                self._update_execution_record(
-                    "success", result.message or "", item_results
-                )
+                self._update_execution_record("success", result.message or "", item_results)
                 log.info("Login AST completed successfully", username=username)
 
         except Exception as e:
@@ -629,9 +598,7 @@ class LoginAST(AST):
             result.screenshots = all_screenshots
             result.item_results = item_results
 
-            self._update_execution_record(
-                "failed", result.message, item_results, error=str(e)
-            )
+            self._update_execution_record("failed", result.message, item_results, error=str(e))
             log.exception("Login AST failed", username=username)
 
         return result

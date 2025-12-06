@@ -9,6 +9,7 @@ import { config } from '../config';
 import { authRoutes, historyRoutes } from '../routes';
 import { terminalWebSocket } from '../ws';
 import { closeValkeyClient } from '../valkey';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({
@@ -40,9 +41,33 @@ export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
     },
   });
 
-  // Health check
-  app.get('/health', () => {
-    return { status: 'ok', timestamp: Date.now() };
+  // Health check with DynamoDB validation
+  app.get('/health', async () => {
+    try {
+      // Validate DynamoDB connection
+      const { DynamoDBClient, DescribeTableCommand } = await import('@aws-sdk/client-dynamodb');
+
+      const dynamodb = new DynamoDBClient({
+        endpoint: config.dynamodb.endpoint,
+        region: config.dynamodb.region,
+        credentials: {
+          accessKeyId: config.dynamodb.accessKeyId,
+          secretAccessKey: config.dynamodb.secretAccessKey,
+        },
+      });
+
+      // Simple connectivity check - describe table
+      await dynamodb.send(
+        new DescribeTableCommand({
+          TableName: config.dynamodb.tableName,
+        })
+      );
+
+      return { status: 'ok', timestamp: Date.now(), dynamodb: 'connected' };
+    } catch (error) {
+      app.log.error('Health check failed - DynamoDB unavailable', error);
+      throw new Error('DynamoDB connection failed');
+    }
   });
 
   // Register routes

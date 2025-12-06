@@ -22,8 +22,8 @@ from datetime import datetime
 from typing import Any
 
 import boto3
-from boto3.dynamodb.conditions import Key
 import structlog
+from boto3.dynamodb.conditions import Key
 
 log = structlog.get_logger()
 
@@ -66,9 +66,16 @@ class DynamoDBClient:
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
         )
         self._table = self._resource.Table(table_name)  # type: ignore[attr-defined]
-        log.info(
-            "DynamoDB client initialized", endpoint=DYNAMODB_ENDPOINT, table=table_name
-        )
+
+        # Validate connection by describing the table
+        try:
+            self._client.describe_table(TableName=table_name)
+            log.info("DynamoDB connection validated")
+        except Exception as e:
+            log.error("DynamoDB connection failed", error=str(e))
+            raise RuntimeError(f"Cannot connect to DynamoDB: {e}")
+
+        log.info("DynamoDB client initialized", endpoint=DYNAMODB_ENDPOINT, table=table_name)
 
     @property
     def table(self) -> Any:
@@ -239,17 +246,13 @@ class DynamoDBClient:
 
     def get_session_executions(self, session_id: str) -> list[dict[str, Any]]:
         """Get all AST executions for a session."""
-        return self.query_pk(
-            f"{KeyPrefix.SESSION}{session_id}", sk_prefix=KeyPrefix.EXECUTION
-        )
+        return self.query_pk(f"{KeyPrefix.SESSION}{session_id}", sk_prefix=KeyPrefix.EXECUTION)
 
     # -------------------------------------------------------------------------
     # AST Execution Operations
     # -------------------------------------------------------------------------
 
-    def put_execution(
-        self, session_id: str, execution_id: str, data: dict[str, Any]
-    ) -> None:
+    def put_execution(self, session_id: str, execution_id: str, data: dict[str, Any]) -> None:
         """Create an AST execution record."""
         # Extract user_id and started_at for GSI2
         user_id = data.get("user_id", "anonymous")
@@ -284,9 +287,7 @@ class DynamoDBClient:
 
     def get_execution_policies(self, execution_id: str) -> list[dict[str, Any]]:
         """Get all policy results for an execution."""
-        return self.query_pk(
-            f"{KeyPrefix.EXECUTION}{execution_id}", sk_prefix=KeyPrefix.POLICY
-        )
+        return self.query_pk(f"{KeyPrefix.EXECUTION}{execution_id}", sk_prefix=KeyPrefix.POLICY)
 
     def get_user_executions_by_date(
         self,
@@ -359,9 +360,7 @@ class DynamoDBClient:
         }
         self.put_item(item)
 
-    def get_policy_result(
-        self, execution_id: str, policy_number: str
-    ) -> dict[str, Any] | None:
+    def get_policy_result(self, execution_id: str, policy_number: str) -> dict[str, Any] | None:
         """Get a specific policy result."""
         return self.get_item(
             f"{KeyPrefix.EXECUTION}{execution_id}",
