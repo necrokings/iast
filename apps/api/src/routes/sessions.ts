@@ -19,6 +19,7 @@ import {
 } from '../models/userSession';
 import { verifyToken } from '../services/auth';
 import { getValkeyClient } from '../valkey';
+import { getActiveExecutionBySession } from '../services/dynamodb';
 
 export function sessionRoutes(fastify: FastifyInstance): void {
   // Create a new session
@@ -154,6 +155,41 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       return await reply.send(createSuccessResponse(updatedSession));
+    } catch (error) {
+      if (error instanceof TerminalError) {
+        return await reply.status(401).send(createErrorResponse(error.code, error.message));
+      }
+      fastify.log.error(error);
+      return await reply.status(500).send(createErrorResponse(ERROR_CODES.INTERNAL_ERROR));
+    }
+  });
+
+  // Get active (running/paused) execution for a session
+  fastify.get('/sessions/:sessionId/execution', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const authHeader = request.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return await reply.status(401).send(createErrorResponse(ERROR_CODES.AUTH_REQUIRED));
+      }
+
+      const token = authHeader.slice(7);
+      const payload = verifyToken(token);
+
+      const { sessionId } = request.params as { sessionId: string };
+
+      // Verify session exists and belongs to user
+      const session = await findUserSessionById(payload.sub, sessionId);
+      if (!session) {
+        return await reply
+          .status(404)
+          .send(createErrorResponse(ERROR_CODES.VALIDATION_FAILED, 'Session not found'));
+      }
+
+      // Get active execution for this session
+      const execution = await getActiveExecutionBySession(sessionId);
+      fastify.log.info({ sessionId, execution }, 'getActiveExecutionBySession result');
+      
+      return await reply.send(createSuccessResponse({ execution }));
     } catch (error) {
       if (error instanceof TerminalError) {
         return await reply.status(401).send(createErrorResponse(error.code, error.message));

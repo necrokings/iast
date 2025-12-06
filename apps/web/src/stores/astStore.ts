@@ -52,6 +52,16 @@ interface ASTStore {
   handleASTItemResult: (tabId: string, itemResult: ASTItemResult) => void;
   handleASTPaused: (tabId: string, isPaused: boolean) => void;
 
+  // Restore state from active execution (e.g., after page refresh)
+  restoreFromExecution: (tabId: string, execution: {
+    ast_name: string;
+    status: 'running' | 'paused';
+    policy_count: number;
+    success_count?: number;
+    failed_count?: number;
+    execution_id: string;
+  }) => void;
+
   // Reset
   reset: (tabId: string) => void;
 }
@@ -213,6 +223,34 @@ export const useASTStore = create<ASTStore>((set, get) => ({
         },
       });
     }
+  },
+
+  restoreFromExecution: (tabId, execution) => {
+    const { tabs } = get();
+    const tabState = tabs[tabId] ?? createInitialTabState();
+    
+    // Calculate progress from execution counts
+    const processed = (execution.success_count ?? 0) + (execution.failed_count ?? 0);
+    const progress = execution.policy_count > 0 ? {
+      current: processed,
+      total: execution.policy_count,
+      percentage: Math.round((processed / execution.policy_count) * 100),
+    } : null;
+
+    set({
+      tabs: {
+        ...tabs,
+        [tabId]: {
+          ...tabState,
+          runningAST: execution.ast_name,
+          status: execution.status,
+          progress,
+          // Store execution_id in lastResult for reference
+          lastResult: null,
+          itemResults: [],
+        },
+      },
+    });
   },
 
   reset: (tabId) => {

@@ -5,7 +5,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { getStoredSessionId, setStoredSessionId, removeStoredSessionId } from '../utils/storage';
-import { createSession, deleteSession, getSessions, updateSession } from '../services/session';
+import { createSession, deleteSession, getSessions, updateSession, getActiveExecution } from '../services/session';
 import { useAST } from '../hooks/useAST';
 import { useASTStore } from '../stores/astStore';
 import { Terminal } from '../components/Terminal';
@@ -117,10 +117,28 @@ function TerminalPage() {
       .finally(() => setIsCreatingSession(false));
   }, [initTab, isCreatingSession, tabs.length]);
 
+  // Get tabs state from Zustand to check for running ASTs
+  const tabsASTState = useASTStore((state) => state.tabs);
+
+  // Check if a tab has a running AST
+  const isTabRunningAST = useCallback(
+    (tabId: string): boolean => {
+      const tabState = tabsASTState[tabId];
+      if (!tabState) return false;
+      return tabState.status === 'running' || tabState.status === 'paused';
+    },
+    [tabsASTState]
+  );
+
   const handleCloseTab = useCallback(
     (tabId: string) => {
       const tabToClose = tabs.find((t) => t.id === tabId);
       if (!tabToClose) return;
+
+      // Prevent closing if AST is running
+      if (isTabRunningAST(tabId)) {
+        return; // Don't allow closing
+      }
 
       const idx = tabs.findIndex((t) => t.id === tabId);
       const nextTabs = tabs.filter((t) => t.id !== tabId);
@@ -150,7 +168,7 @@ function TerminalPage() {
         });
       }
     },
-    [activeTabId, removeTab, tabs]
+    [activeTabId, isTabRunningAST, removeTab, tabs]
   );
 
   const handleSwitchTab = useCallback(
@@ -260,12 +278,17 @@ function TerminalPage() {
             )}
             {tabs.length > 1 && editingTabId !== tab.id && (
               <button
-                className="w-4 h-4 flex items-center justify-center rounded opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 dark:text-zinc-400"
+                className={`w-4 h-4 flex items-center justify-center rounded ${isTabRunningAST(tab.id)
+                    ? 'opacity-20 cursor-not-allowed'
+                    : 'opacity-60 hover:opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer'
+                  } text-zinc-500 dark:text-zinc-400`}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleCloseTab(tab.id);
                 }}
-                aria-label="Close tab"
+                disabled={isTabRunningAST(tab.id)}
+                aria-label={isTabRunningAST(tab.id) ? "Cannot close while AST is running" : "Close tab"}
+                title={isTabRunningAST(tab.id) ? "Cannot close while AST is running" : "Close tab"}
               >
                 <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
                   <path d="M3 3l6 6M9 3l-6 6" />
@@ -322,7 +345,40 @@ function TabContent({
     handleASTProgress,
     handleASTItemResult,
     handleASTPaused,
+    restoreFromExecution,
   } = useAST(tab.id);
+
+  const [checkedForActiveExecution, setCheckedForActiveExecution] = useState(false);
+
+  // Check for active execution on mount (handles page refresh)
+  useEffect(() => {
+    if (checkedForActiveExecution || !tab.sessionId) return;
+
+    const checkActiveExecution = async () => {
+      try {
+        console.log('[checkActiveExecution] Checking for active execution, sessionId:', tab.sessionId);
+        const execution = await getActiveExecution(tab.sessionId);
+        console.log('[checkActiveExecution] Result:', execution);
+        if (execution && (execution.status === 'running' || execution.status === 'paused')) {
+          console.log('[checkActiveExecution] Restoring from execution:', execution);
+          restoreFromExecution({
+            ast_name: execution.ast_name,
+            status: execution.status,
+            policy_count: execution.policy_count,
+            success_count: execution.success_count,
+            failed_count: execution.failed_count,
+            execution_id: execution.execution_id,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to check for active execution:', error);
+      } finally {
+        setCheckedForActiveExecution(true);
+      }
+    };
+
+    checkActiveExecution();
+  }, [tab.sessionId, checkedForActiveExecution, restoreFromExecution]);
 
   const handleTerminalReady = useCallback(
     (api: TerminalApi) => {

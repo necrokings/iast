@@ -43,6 +43,15 @@ export interface UseASTReturn {
   selectedASTId: string | null;
   /** Set selected AST ID */
   setSelectedASTId: (astId: string | null) => void;
+  /** Restore AST state from an active execution (e.g., after page refresh) */
+  restoreFromExecution: (execution: {
+    ast_name: string;
+    status: 'running' | 'paused';
+    policy_count: number;
+    success_count?: number;
+    failed_count?: number;
+    execution_id: string;
+  }) => void;
 }
 
 // ============================================================================
@@ -90,6 +99,7 @@ export function useAST(tabId?: string): UseASTReturn {
   const storeHandleASTPaused = useASTStore((state) => state.handleASTPaused);
   const storeReset = useASTStore((state) => state.reset);
   const storeSetSelectedASTId = useASTStore((state) => state.setSelectedASTId);
+  const storeRestoreFromExecution = useASTStore((state) => state.restoreFromExecution);
 
   // Create bound action wrappers that automatically use the effective tab ID
   const setRunCallback = useCallback(
@@ -163,6 +173,22 @@ export function useAST(tabId?: string): UseASTReturn {
     [effectiveTabId, storeSetSelectedASTId]
   );
 
+  const restoreFromExecution = useCallback(
+    (execution: {
+      ast_name: string;
+      status: 'running' | 'paused';
+      policy_count: number;
+      success_count?: number;
+      failed_count?: number;
+      execution_id: string;
+    }) => {
+      if (effectiveTabId) {
+        storeRestoreFromExecution(effectiveTabId, execution);
+      }
+    },
+    [effectiveTabId, storeRestoreFromExecution]
+  );
+
   // Compute derived values
   const state = tabState ?? defaultTabState;
   const isRunning = state.status === 'running' || state.status === 'paused';
@@ -185,6 +211,7 @@ export function useAST(tabId?: string): UseASTReturn {
       isRunning,
       selectedASTId: state.selectedASTId,
       setSelectedASTId,
+      restoreFromExecution,
     }),
     [
       state,
@@ -197,6 +224,7 @@ export function useAST(tabId?: string): UseASTReturn {
       reset,
       isRunning,
       setSelectedASTId,
+      restoreFromExecution,
     ]
   );
 }

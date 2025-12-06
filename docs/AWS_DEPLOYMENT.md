@@ -165,6 +165,7 @@ aws elasticache create-cache-cluster \
 ```
 
 For production, consider:
+
 - `cache.r6g.large` or larger for production workloads
 - Multi-AZ with automatic failover
 - Redis cluster mode for horizontal scaling
@@ -744,6 +745,7 @@ Configure `MAX_SESSIONS` environment variable accordingly.
 ### Reserved Capacity
 
 For predictable workloads:
+
 - EC2 Reserved Instances for gateway
 - ElastiCache Reserved Nodes
 - DynamoDB Reserved Capacity
@@ -751,6 +753,7 @@ For predictable workloads:
 ### Spot Instances
 
 Gateway can use Spot Instances with proper handling:
+
 - Graceful shutdown on Spot interruption
 - Session migration (future enhancement)
 
@@ -772,4 +775,3 @@ Gateway can use Spot Instances with proper handling:
 - [ ] IAM roles created
 - [ ] CloudWatch alarms set up
 - [ ] Direct Connect / VPN to mainframe (if required)
-

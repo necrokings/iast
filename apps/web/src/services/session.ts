@@ -5,6 +5,7 @@
 import { getApiUrl } from '../config';
 import { getStoredToken } from '../utils/storage';
 import type { UserSession } from '@terminal/shared';
+import type { ExecutionRecord } from '../components/history/types';
 
 async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
@@ -62,4 +63,14 @@ export async function deleteSession(sessionId: string): Promise<void> {
   if (!data.success) throw new Error('Failed to delete session');
 }
 
-export default { createSession, getSessions, getSession, updateSession, deleteSession };
+/**
+ * Get the active (running or paused) execution for a session
+ */
+export async function getActiveExecution(sessionId: string): Promise<ExecutionRecord | null> {
+  const url = getApiUrl(`/sessions/${sessionId}/execution`);
+  const data = await fetchJson<{ success: boolean; data: { execution: ExecutionRecord | null } }>(url);
+  if (!data.success) throw new Error('Failed to fetch active execution');
+  return data.data.execution;
+}
+
+export default { createSession, getSessions, getSession, updateSession, deleteSession, getActiveExecution };
