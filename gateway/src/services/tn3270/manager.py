@@ -333,11 +333,17 @@ class TN3270Manager:
     async def _handle_input(self, session_id: str, raw_data: str) -> None:
         """Handle keyboard input from the client."""
         session = self._sessions.get(session_id)
-        if not session:
-            return
 
         try:
             msg = parse_message(raw_data)
+            if isinstance(msg, SessionDestroyMessage):
+                # Handle session destroy even if session doesn't exist in our map
+                await self.destroy_session(session_id, "user_requested")
+                return
+
+            if not session:
+                return
+
             if isinstance(msg, DataMessage):
                 await self._process_input(session, msg.payload)
             elif isinstance(msg, ASTRunMessage):

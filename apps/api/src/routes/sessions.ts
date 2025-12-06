@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   createSuccessResponse,
   createErrorResponse,
+  createSessionDestroyMessage,
   ERROR_CODES,
   TerminalError,
 } from '@terminal/shared';
@@ -17,6 +18,7 @@ import {
   deleteUserSession,
 } from '../models/userSession';
 import { verifyToken } from '../services/auth';
+import { getValkeyClient } from '../valkey';
 
 export function sessionRoutes(fastify: FastifyInstance): void {
   // Create a new session
@@ -180,6 +182,16 @@ export function sessionRoutes(fastify: FastifyInstance): void {
         return await reply
           .status(404)
           .send(createErrorResponse(ERROR_CODES.VALIDATION_FAILED, 'Session not found'));
+      }
+
+      // Send destroy message to gateway to terminate TN3270 connection
+      try {
+        const valkey = getValkeyClient();
+        const destroyMsg = createSessionDestroyMessage(sessionId);
+        await valkey.publishControl(sessionId, destroyMsg);
+      } catch (err) {
+        fastify.log.error({ err }, 'Failed to send session destroy to gateway');
+        // Continue with deletion even if gateway notification fails
       }
 
       await deleteUserSession(payload.sub, sessionId);

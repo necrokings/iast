@@ -3,7 +3,6 @@
 // ============================================================================
 
 import { createRootRoute, Outlet } from '@tanstack/react-router'
-import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { ASTProvider } from '../providers/ASTProvider'
 import { AuthGuard, Navbar } from '../components'
 
@@ -20,7 +19,7 @@ function RootLayout() {
           <Outlet />
         </div>
       </AuthGuard>
-      <TanStackRouterDevtools position="bottom-right" />
+      {/* <TanStackRouterDevtools position="bottom-right" /> */}
     </ASTProvider>
   )
 }
