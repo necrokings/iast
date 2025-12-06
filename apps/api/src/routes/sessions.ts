@@ -140,6 +140,17 @@ export function sessionRoutes(fastify: FastifyInstance): void {
 
       // Return updated session
       const updatedSession = await findUserSessionById(payload.sub, sessionId);
+      if (!updatedSession) {
+        return await reply
+          .status(500)
+          .send(
+            createErrorResponse(
+              ERROR_CODES.INTERNAL_ERROR,
+              'Updated session could not be retrieved'
+            )
+          );
+      }
+
       return await reply.send(createSuccessResponse(updatedSession));
     } catch (error) {
       if (error instanceof TerminalError) {

@@ -78,7 +78,7 @@ async function createDemoUser(): Promise<void> {
 
   // Hash password with bcrypt (10 rounds)
   const bcrypt = await import('bcrypt');
-  const passwordHash = await bcrypt.default.hash(demoPassword, 10);
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
 
   await createUser({
     id: 'demo-user-001',

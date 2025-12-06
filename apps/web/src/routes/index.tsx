@@ -119,13 +119,9 @@ function TerminalPage() {
         }
       } catch (error) {
         console.error('Failed to initialize session:', error);
-        // Fallback: try to use stored session ID, or generate a new one
-        let fallbackId = getStoredSessionId();
-        if (!fallbackId) {
-          fallbackId = crypto.randomUUID();
-          setStoredSessionId(fallbackId);
-        }
-        setSessionId(fallbackId);
+        // Fallback: clear any stored session and show empty state
+        removeStoredSessionId();
+        setSessionId('');
       } finally {
         setSessionsLoaded(true);
       }
