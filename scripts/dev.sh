@@ -29,7 +29,7 @@ error() { echo -e "${RED}[dev]${NC} $1"; }
 
 cleanup() {
     log "Shutting down services..."
-    
+
     # Kill background processes
     if [ -n "$API_PID" ]; then
         kill $API_PID 2>/dev/null || true
@@ -40,10 +40,10 @@ cleanup() {
     if [ -n "$GATEWAY_PID" ] && [ "$APP_ONLY" = false ]; then
         kill $GATEWAY_PID 2>/dev/null || true
     fi
-    
+
     # Stop docker
     docker compose -f infra/docker-compose.dev.yml down 2>/dev/null || true
-    
+
     success "All services stopped"
     exit 0
 }
@@ -62,6 +62,13 @@ until docker exec terminal-valkey valkey-cli ping 2>/dev/null | grep -q PONG; do
     sleep 0.5
 done
 success "Valkey is ready"
+
+# ----------------------------------------------------------------------------
+# Setup DynamoDB
+# ----------------------------------------------------------------------------
+log "Setting up DynamoDB..."
+./scripts/setup-dynamodb.sh
+success "DynamoDB setup complete"
 
 # ----------------------------------------------------------------------------
 # Start API
