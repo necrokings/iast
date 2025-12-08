@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from .data import DataMessage
     from .error import ErrorMessage
     from .ping import PingMessage, PongMessage
-    from .resize import ResizeMessage
     from .session import (
         SessionCreatedMessage,
         SessionCreateMessage,
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
 
     MessageEnvelope = (
         DataMessage
-        | ResizeMessage
         | PingMessage
         | PongMessage
         | ErrorMessage
@@ -53,7 +51,6 @@ def parse_message(raw: str | bytes) -> "MessageEnvelope":
     from .data import DataMessage
     from .error import ErrorMessage
     from .ping import PingMessage, PongMessage
-    from .resize import ResizeMessage
     from .session import (
         SessionCreatedMessage,
         SessionCreateMessage,
@@ -70,8 +67,6 @@ def parse_message(raw: str | bytes) -> "MessageEnvelope":
     match msg_type:
         case MessageType.DATA:
             return DataMessage.model_validate(data)
-        case MessageType.RESIZE:
-            return ResizeMessage.model_validate(data)
         case MessageType.PING:
             return PingMessage.model_validate(data)
         case MessageType.PONG:

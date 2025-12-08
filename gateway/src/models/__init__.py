@@ -6,7 +6,6 @@ from .base import BaseMessage
 from .data import DataMessage, create_data_message
 from .error import ErrorMessage, ErrorMeta, create_error_message
 from .ping import PingMessage, PongMessage
-from .resize import ResizeMeta, ResizeMessage
 from .session import (
     SessionCreatedMessage,
     SessionCreatedMeta,
@@ -57,9 +56,6 @@ __all__ = [
     # Data
     "DataMessage",
     "create_data_message",
-    # Resize
-    "ResizeMessage",
-    "ResizeMeta",
     # Ping/Pong
     "PingMessage",
     "PongMessage",

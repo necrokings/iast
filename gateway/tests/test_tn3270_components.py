@@ -85,25 +85,68 @@ def _build_test_session() -> _FakeTnz:
 class TN3270RendererTests(unittest.TestCase):
     """Validate screen rendering helpers."""
 
-    def test_render_screen_with_fields_builds_metadata(self) -> None:
-        session = _build_test_session()
-        renderer = TN3270Renderer()
+    def setUp(self) -> None:
+        self.session = _build_test_session()
+        self.renderer = TN3270Renderer()
 
-        screen = renderer.render_screen_with_fields(session)
+    def test_render_screen_with_fields_builds_metadata(self) -> None:
+        screen = self.renderer.render_screen_with_fields(self.session)
 
         self.assertTrue(screen.ansi.startswith("\x1b[2J\x1b[H"))
-        self.assertEqual(screen.cursor_col, session.curadd % session.maxcol)
+        self.assertEqual(screen.cursor_col, self.session.curadd % self.session.maxcol)
         self.assertEqual(len(screen.fields), 2)
         self.assertTrue(screen.fields[0].protected)
         self.assertFalse(screen.fields[1].protected)
         self.assertEqual(screen.fields[1].length, 3)
 
-    def test_is_position_protected_uses_field_map(self) -> None:
-        session = _build_test_session()
-        renderer = TN3270Renderer()
+    def test_render_screen_and_diff(self) -> None:
+        full_render = self.renderer.render_screen(self.session)
+        diff_render = self.renderer.render_diff(self.session, prev_screen=b"prior")
+        self.assertEqual(full_render, diff_render)
+        self.assertIn("\x1b[0m", full_render)
 
-        self.assertTrue(renderer.is_position_protected(session, 0, 1))
-        self.assertFalse(renderer.is_position_protected(session, 0, 6))
+    def test_is_position_protected_uses_field_map(self) -> None:
+        self.assertTrue(self.renderer.is_position_protected(self.session, 0, 1))
+        self.assertFalse(self.renderer.is_position_protected(self.session, 0, 6))
+
+    def test_cursor_and_size_helpers(self) -> None:
+        cursor_row, cursor_col = self.renderer.get_cursor_position(self.session)
+        rows, cols = self.renderer.get_screen_size(self.session)
+        self.assertEqual(cursor_row, self.session.curadd // self.session.maxcol)
+        self.assertEqual(cursor_col, self.session.curadd % self.session.maxcol)
+        self.assertEqual((rows, cols), (self.session.maxrow, self.session.maxcol))
+
+    def test_decode_char_and_attr_sequences(self) -> None:
+        class _Codec:
+            def decode(self, data: bytes):
+                return ("@", len(data))
+
+        class _DecodeStub:
+            codec_info = {0: _Codec()}
+
+        decoded = self.renderer._decode_char(0x41, _DecodeStub())  # type: ignore[arg-type]
+        self.assertEqual(decoded, "@")
+
+        class _FallbackStub:
+            codec_info: dict[int, object] = {}
+
+        fallback_char = self.renderer._decode_char(0xC1, _FallbackStub())  # type: ignore[arg-type]
+        self.assertEqual(fallback_char, "A")
+
+        class _ErrorStub:
+            codec_info = {0: object()}
+
+        error_char = self.renderer._decode_char(0x00, _ErrorStub())  # type: ignore[arg-type]
+        self.assertEqual(error_char, " ")
+
+        seq_default = self.renderer._build_attr_sequence(2, 0, 0)
+        seq_blink = self.renderer._build_attr_sequence(3, 1, 0xF1)
+        seq_reverse = self.renderer._build_attr_sequence(4, 2, 0xF2)
+        seq_underscore = self.renderer._build_attr_sequence(5, 3, 0xF4)
+        self.assertIn("32", seq_default)
+        self.assertIn("5", seq_blink)
+        self.assertIn("7", seq_reverse)
+        self.assertIn("4", seq_underscore)
 
 
 class HostTests(unittest.TestCase):

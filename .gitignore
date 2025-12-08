@@ -39,6 +39,8 @@ pnpm-debug.log*
 # Testing
 coverage/
 .nyc_output/
+.coverage
+htmlcov/
 
 # Misc
 *.local

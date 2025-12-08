@@ -9,6 +9,8 @@
     "dev:web": "pnpm --filter @terminal/web dev",
     "dev:api": "pnpm --filter @terminal/api dev",
     "dev:gateway": "cd gateway && uv run gateway",
+    "test:gateway": "cd gateway && uv run gateway-tests",
+    "coverage:gateway": "cd gateway && uv run gateway-coverage",
     "dev:valkey": "docker compose -f infra/docker-compose.dev.yml up -d",
     "dev:valkey:stop": "docker compose -f infra/docker-compose.dev.yml down",
     "build": "pnpm run --recursive build",

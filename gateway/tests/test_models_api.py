@@ -9,7 +9,6 @@ from src.models import (
     DataMessage,
     PingMessage,
     PongMessage,
-    ResizeMessage,
     SessionDestroyMessage,
     create_ast_progress_message,
     create_session_created_message,
@@ -79,14 +78,6 @@ class MessageParserTests(unittest.TestCase):
                     "type": "pong",
                 },
                 PongMessage,
-            ),
-            (
-                {
-                    "sessionId": "session-902",
-                    "type": "resize",
-                    "meta": {"cols": 120, "rows": 50},
-                },
-                ResizeMessage,
             ),
             (
                 {

@@ -775,3 +775,5 @@ Gateway can use Spot Instances with proper handling:
 - [ ] IAM roles created
 - [ ] CloudWatch alarms set up
 - [ ] Direct Connect / VPN to mainframe (if required)
+
+

@@ -31,7 +31,6 @@ from .models import (
     MessageType,
     PingMessage,
     PongMessage,
-    ResizeMessage,
     SessionCreatedMessage,
     SessionCreateMessage,
     SessionDestroyedMessage,
@@ -73,7 +72,6 @@ __all__ = [
     # Models
     "MessageType",
     "DataMessage",
-    "ResizeMessage",
     "PingMessage",
     "PongMessage",
     "ErrorMessage",

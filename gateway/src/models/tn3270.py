@@ -21,6 +21,14 @@ class TN3270Field(BaseModel):
     col: int  # Starting column (0-indexed)
     length: int  # Field length in characters
 
+    def is_input(self) -> bool:
+        """Return True when the field accepts user input."""
+        return not self.protected
+
+    def span(self) -> tuple[int, int]:
+        """Return the start/end buffer addresses."""
+        return (self.start, self.end)
+
 
 class TN3270ScreenMeta(BaseModel):
     """Metadata for TN3270 screen message."""
@@ -31,6 +39,10 @@ class TN3270ScreenMeta(BaseModel):
     rows: int  # Screen rows
     cols: int  # Screen columns
 
+    def cursor_position(self) -> tuple[int, int]:
+        """Return cursor row/col as a tuple."""
+        return (self.cursorRow, self.cursorCol)
+
 
 class TN3270ScreenMessage(BaseMessage):
     """TN3270 screen update with field information."""
@@ -38,12 +50,20 @@ class TN3270ScreenMessage(BaseMessage):
     type: Literal[MessageType.TN3270_SCREEN] = MessageType.TN3270_SCREEN
     meta: TN3270ScreenMeta
 
+    def field_count(self) -> int:
+        """Helper for quickly counting rendered fields."""
+        return len(self.meta.fields)
+
 
 class TN3270CursorMeta(BaseModel):
     """Metadata for TN3270 cursor message."""
 
     row: int  # Cursor row (0-indexed)
     col: int  # Cursor column (0-indexed)
+
+    def as_tuple(self) -> tuple[int, int]:
+        """Return the cursor as a row/col tuple."""
+        return (self.row, self.col)
 
 
 class TN3270CursorMessage(BaseMessage):

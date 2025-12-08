@@ -31,7 +31,6 @@ from ...models import (
     ASTControlMessage,
     ASTRunMessage,
     DataMessage,
-    ResizeMessage,
     SessionCreateMessage,
     SessionDestroyMessage,
     TN3270Field,
@@ -656,16 +655,7 @@ class TN3270Manager:
         try:
             msg = parse_message(raw_data)
 
-            if isinstance(msg, ResizeMessage):
-                # 3270 doesn't really support dynamic resize
-                # but we can acknowledge it
-                log.debug(
-                    "Resize ignored for 3270",
-                    session_id=session_id,
-                    cols=msg.meta.cols,
-                    rows=msg.meta.rows,
-                )
-            elif isinstance(msg, SessionDestroyMessage):
+            if isinstance(msg, SessionDestroyMessage):
                 await self.destroy_session(session_id, "user_requested")
 
         except TerminalError as e:
