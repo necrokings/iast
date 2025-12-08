@@ -58,7 +58,10 @@ class AppAsyncTests(unittest.IsolatedAsyncioTestCase):
         app_module._shutdown_event = None
 
     def test_main_runs_async_main(self) -> None:
-        with patch.object(app_module.asyncio, "run") as mock_run:
+        def fake_run(coro):
+            coro.close()
+
+        with patch.object(app_module.asyncio, "run", side_effect=fake_run) as mock_run:
             app_module.main()
 
         mock_run.assert_called_once()

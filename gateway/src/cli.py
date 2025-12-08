@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import unittest
 from pathlib import Path
-from typing import Final
+from typing import Final, Sequence
 
+import pytest
 from coverage import Coverage
 
 
@@ -16,20 +16,23 @@ COVERAGE_FILE: Final = PROJECT_ROOT / ".coverage"
 HTML_REPORT_DIR: Final = PROJECT_ROOT / "htmlcov"
 
 
-def _run_tests() -> unittest.result.TestResult:
-    loader = unittest.TestLoader()
-    suite = loader.discover(str(TESTS_DIR))
-    runner = unittest.TextTestRunner(verbosity=2)
-    return runner.run(suite)
+def _run_pytest(extra_args: Sequence[str] | None = None) -> int:
+    """Invoke pytest for the gateway test suite."""
+
+    args = [str(TESTS_DIR)]
+    if extra_args:
+        args.extend(extra_args)
+    return pytest.main(args)
 
 
-def _exit(result: unittest.result.TestResult) -> None:
-    raise SystemExit(0 if result.wasSuccessful() else 1)
+def _exit(exit_code: int) -> None:
+    raise SystemExit(exit_code)
 
 
 def run_tests() -> None:
-    """Execute the unittest suite."""
-    _exit(_run_tests())
+    """Execute the test suite with pytest."""
+
+    _exit(_run_pytest())
 
 
 def run_coverage() -> None:
@@ -38,9 +41,9 @@ def run_coverage() -> None:
     cov = Coverage(source=[str(SRC_DIR)], data_file=str(COVERAGE_FILE))
     cov.erase()
     cov.start()
-    result = _run_tests()
+    exit_code = _run_pytest()
     cov.stop()
     cov.save()
     cov.report(skip_covered=True, skip_empty=True, show_missing=True)
     cov.html_report(directory=str(HTML_REPORT_DIR))
-    _exit(result)
+    _exit(exit_code)

@@ -4,7 +4,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .base import BaseMessage
 from .types import MessageType
@@ -18,15 +18,13 @@ from .types import MessageType
 class ASTRunMeta(BaseModel):
     """AST run metadata."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     ast_name: str = Field(alias="astName")
     """Name of the AST to run."""
 
     params: dict[str, Any] | None = None
     """Optional parameters for the AST."""
-
-    class Config:
-        populate_by_name = True
-
 
 class ASTRunMessage(BaseMessage):
     """Request to run an AST."""
@@ -43,11 +41,10 @@ class ASTRunMessage(BaseMessage):
 class ASTControlMeta(BaseModel):
     """AST control command metadata."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     action: Literal["pause", "resume", "cancel"]
     """Control action to perform."""
-
-    class Config:
-        populate_by_name = True
 
 
 class ASTControlMessage(BaseMessage):
@@ -65,15 +62,13 @@ class ASTControlMessage(BaseMessage):
 class ASTPausedMeta(BaseModel):
     """AST paused status metadata."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     paused: bool
     """Whether the AST is currently paused."""
 
     message: str | None = None
     """Optional message."""
-
-    class Config:
-        populate_by_name = True
-
 
 class ASTPausedMessage(BaseMessage):
     """AST paused status update."""
@@ -89,6 +84,8 @@ class ASTPausedMessage(BaseMessage):
 
 class ASTStatusMeta(BaseModel):
     """AST status metadata."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     ast_name: str = Field(alias="astName")
     """Name of the AST."""
@@ -108,10 +105,6 @@ class ASTStatusMeta(BaseModel):
     data: dict[str, Any] | None = None
     """Additional data from the AST."""
 
-    class Config:
-        populate_by_name = True
-
-
 class ASTStatusMessage(BaseMessage):
     """AST execution status update."""
 
@@ -126,6 +119,8 @@ class ASTStatusMessage(BaseMessage):
 
 class ASTProgressMeta(BaseModel):
     """AST progress metadata."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     execution_id: str = Field(alias="executionId")
     """Execution ID."""
@@ -153,10 +148,6 @@ class ASTProgressMeta(BaseModel):
     message: str | None = None
     """Message about current progress."""
 
-    class Config:
-        populate_by_name = True
-
-
 class ASTProgressMessage(BaseMessage):
     """AST execution progress update."""
 
@@ -171,6 +162,8 @@ class ASTProgressMessage(BaseMessage):
 
 class ASTItemResultMeta(BaseModel):
     """AST item result metadata."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     execution_id: str = Field(alias="executionId")
     """Execution ID."""
@@ -189,10 +182,6 @@ class ASTItemResultMeta(BaseModel):
 
     data: dict[str, Any] | None = None
     """Additional data."""
-
-    class Config:
-        populate_by_name = True
-
 
 class ASTItemResultMessage(BaseMessage):
     """AST item processing result."""

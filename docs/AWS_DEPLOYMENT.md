@@ -777,3 +777,4 @@ Gateway can use Spot Instances with proper handling:
 - [ ] Direct Connect / VPN to mainframe (if required)
 
 
+
