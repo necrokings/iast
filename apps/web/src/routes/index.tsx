@@ -310,7 +310,7 @@ function TerminalPage() {
         </button>
       </div>
 
-      {/* Content */}
+      {/* Content - Only render the active tab to avoid multiple WebSocket connections */}
       <div className="flex-1 flex flex-col gap-4 p-4">
         {tabs.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
@@ -319,9 +319,9 @@ function TerminalPage() {
             </div>
           </div>
         ) : (
-          tabs.map((tab) => (
-            <TabContent key={tab.id} tab={tab} active={tab.id === activeTabId} />
-          ))
+          tabs
+            .filter((tab) => tab.id === activeTabId)
+            .map((tab) => <TabContent key={tab.id} tab={tab} active={true} />)
         )}
         {loadError ? (
           <div className="text-xs text-amber-600 dark:text-amber-400">{loadError}</div>
@@ -333,10 +333,8 @@ function TerminalPage() {
 
 function TabContent({
   tab,
-  active,
 }: {
   tab: { id: string; sessionId: string };
-  active: boolean;
 }) {
   // Pass the tab ID to useAST to get per-tab state
   const {
@@ -426,7 +424,7 @@ function TabContent({
   );
 
   return (
-    <div className={active ? 'flex-1 flex flex-col gap-4' : 'hidden'}>
+    <div className="flex-1 flex flex-col gap-4">
       <div className="flex-1 flex gap-4">
         {tab.sessionId ? (
           <Terminal
