@@ -120,7 +120,8 @@ export class TerminalWebSocket {
     }
 
     const delay = Math.min(
-      config.reconnect.initialDelayMs * Math.pow(config.reconnect.backoffMultiplier, this.reconnectAttempts),
+      config.reconnect.initialDelayMs *
+        Math.pow(config.reconnect.backoffMultiplier, this.reconnectAttempts),
       config.reconnect.maxDelayMs
     );
 
