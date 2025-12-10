@@ -9,6 +9,9 @@ import './index.css'
 // Import the generated route tree
 import { routeTree } from './routeTree.gen'
 
+// Create router instance
+const router = createRouter({ routeTree })
+
 // Create MSAL instance
 const msalInstance = new PublicClientApplication(msalConfig)
 
@@ -34,16 +37,6 @@ msalInstance.initialize().then(() => {
   // If there's no active account but there are accounts, set the first one
   if (!msalInstance.getActiveAccount() && msalInstance.getAllAccounts().length > 0) {
     msalInstance.setActiveAccount(msalInstance.getAllAccounts()[0])
-  }
-
-  // Create a new router instance
-  const router = createRouter({ routeTree })
-
-  // Register the router instance for type safety
-  declare module '@tanstack/react-router' {
-    interface Register {
-      router: typeof router
-    }
   }
 
   // Render the app

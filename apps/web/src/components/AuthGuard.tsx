@@ -75,10 +75,10 @@ export function AuthGuard({ children }: AuthGuardProps): ReactNode {
   return (
     <AuthContext.Provider
       value={{
-        user: userInfo ? { 
-          id: userInfo.id, 
+        user: userInfo ? {
+          id: userInfo.id,
           email: userInfo.email,
-          displayName: userInfo.name 
+          displayName: userInfo.name
         } : null,
         isAuthenticated,
       }}

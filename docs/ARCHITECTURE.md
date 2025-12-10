@@ -450,6 +450,7 @@ Users are authenticated via Azure Entra ID. No local demo user is created.
 Configure your Entra ID tenant and application registration with the following environment variables:
 
 **Frontend (.env)**:
+
 ```
 VITE_ENTRA_CLIENT_ID=your-client-id
 VITE_ENTRA_TENANT_ID=your-tenant-id
@@ -458,6 +459,7 @@ VITE_ENTRA_API_SCOPE=api://your-client-id/access_as_user
 ```
 
 **Backend (.env)**:
+
 ```
 ENTRA_TENANT_ID=your-tenant-id
 ENTRA_CLIENT_ID=your-client-id
