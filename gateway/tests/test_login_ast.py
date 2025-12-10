@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from src.ast.login import LoginAST
-from src.ast.base import ASTStatus
+from src.core.ast import ASTStatus
 
 
 class _FakeHost:
@@ -76,7 +76,7 @@ class LoginASTTests(unittest.TestCase):
         self.assertEqual(result.status, ASTStatus.FAILED)
         self.assertIn("username and password", result.message)
 
-    @patch("src.ast.base.get_dynamodb_client")
+    @patch("src.core.ast.base.get_dynamodb_client")
     @patch("src.ast.login.time.sleep", return_value=None)
     def test_run_processes_valid_policy(self, _sleep: object, mock_db_factory: object) -> None:
         host = _FakeHost()
@@ -100,7 +100,7 @@ class LoginASTTests(unittest.TestCase):
         self.assertTrue(fake_db.policy_results)
         self.assertTrue(any(u["status"] == "success" for u in fake_db.updates))
 
-    @patch("src.ast.base.get_dynamodb_client")
+    @patch("src.core.ast.base.get_dynamodb_client")
     @patch("src.ast.login.time.sleep", return_value=None)
     def test_run_skips_invalid_policy(self, _sleep: object, mock_db_factory: object) -> None:
         host = _FakeHost()

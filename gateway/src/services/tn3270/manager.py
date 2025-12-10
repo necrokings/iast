@@ -24,8 +24,7 @@ from uuid import uuid4
 
 import structlog
 
-from ...ast import LoginAST
-from ...ast.base import AST
+from ...ast import LoginAST, AST
 from ...core import ErrorCodes, TerminalError, TN3270Config
 from ...models import (
     ASTControlMessage,

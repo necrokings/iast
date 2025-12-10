@@ -5,10 +5,11 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from unittest import mock
 
 from datetime import datetime, timedelta
 
-from src.ast.base import AST, ASTResult, ASTStatus, ItemResult
+from src.core.ast import AST, ASTResult, ASTStatus, ItemResult
 
 
 class DummyHost:
@@ -25,7 +26,7 @@ class SampleAST(AST):
         self.executed_with: dict | None = None
 
     def logoff(self, host: DummyHost):
-        return True, "", []
+        return True, ""
 
     def process_single_item(self, host: DummyHost, item_id: str, index: int, total: int):
         return True, "", {}
@@ -119,6 +120,299 @@ class ASTBaseTests(unittest.TestCase):
         self.assertAlmostEqual(result.duration, 2, delta=0.1)
         self.assertTrue(result.is_success)
         self.assertEqual(result.item_results[0].data["k"], "v")
+
+
+class ParallelASTForTesting(AST):
+    """AST subclass for testing parallel execution."""
+
+    name = "parallel_test"
+    description = "Test AST for parallel execution"
+
+    auth_expected_keywords = ["Welcome"]
+    auth_application = "TEST"
+    auth_group = "TESTGRP"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.processed_items: list = []
+        self.should_fail_auth = False
+        self.should_fail_process = False
+        self.should_fail_logoff = False
+        self.process_delay = 0.01  # seconds
+
+    def authenticate(
+        self,
+        host,
+        user: str,
+        password: str,
+        expected_keywords_after_login: list[str],
+        application: str = "",
+        group: str = "",
+    ):
+        if self.should_fail_auth:
+            return False, "Auth failed"
+        return True, ""
+
+    def logoff(self, host, target_screen_keywords=None):
+        if self.should_fail_logoff:
+            return False, "Logoff failed"
+        return True, ""
+
+    def process_single_item(self, host, item, index: int, total: int):
+        time.sleep(self.process_delay)
+        if self.should_fail_process:
+            return False, "Process failed", {}
+        self.processed_items.append(item)
+        return True, "", {"item": item, "index": index}
+
+    def validate_item(self, item) -> bool:
+        return item is not None and item != "INVALID"
+
+
+class MockAtiInstance:
+    """Mock ATI instance for testing."""
+
+    def __init__(self) -> None:
+        self.sessions: dict = {}
+        self.current_session = ""
+        self.variables: dict = {}
+
+    def set(self, name: str, value, xtern: bool = True, verifycert=None):
+        name_upper = name.upper()
+        if name_upper == "SESSION":
+            self.sessions[value] = MockTnz()
+            self.current_session = value
+            return 0  # Success
+        self.variables[name_upper] = value
+        return None
+
+    def get_tnz(self, name=None):
+        if name is None:
+            name = self.current_session
+        return self.sessions.get(name)
+
+    def wait(self, timeout):
+        pass
+
+    def drop(self, name):
+        if name in self.sessions:
+            del self.sessions[name]
+
+
+class MockTnz:
+    """Mock Tnz instance for testing."""
+
+    def __init__(self) -> None:
+        self.maxrow = 24
+        self.maxcol = 80
+        self.curadd = 0
+        self.pwait = False
+        self.updated = False
+        self.plane_fa = bytearray(24 * 80)
+        self.plane_dc = bytearray(24 * 80)
+        self.codec_info = {}
+
+    def scrstr(self, start: int, end: int):
+        return " " * (end - start)
+
+
+class MockDynamoDBClient:
+    """Mock DynamoDB client for testing."""
+
+    def put_execution(self, **kwargs):
+        pass
+
+    def update_execution(self, **kwargs):
+        pass
+
+    def put_policy_result(self, **kwargs):
+        pass
+
+
+class ExecuteParallelTests(unittest.TestCase):
+    """Tests for execute_parallel method."""
+
+    def setUp(self) -> None:
+        self.ast = ParallelASTForTesting()
+        self.host_config = {
+            "host": "localhost",
+            "port": 3270,
+            "secure": False,
+            "verifycert": False,
+        }
+        self.progress_calls: list = []
+        self.item_calls: list = []
+        self.ast.set_callbacks(
+            on_progress=lambda *args: self.progress_calls.append(args),
+            on_item_result=lambda *args: self.item_calls.append(args),
+        )
+        # Patch db client
+        self.db_patcher = mock.patch(
+            "src.core.ast.base.get_dynamodb_client",
+            return_value=MockDynamoDBClient(),
+        )
+        self.db_patcher.start()
+
+    def tearDown(self) -> None:
+        self.db_patcher.stop()
+
+    def test_execute_parallel_missing_credentials(self) -> None:
+        """Test that missing credentials returns failed result."""
+        result = self.ast.execute_parallel(
+            self.host_config,
+            max_workers=2,
+            items=["item1", "item2"],
+        )
+        self.assertEqual(result.status.value, "failed")
+        self.assertIn("username and password", result.error or result.message)
+
+    def test_execute_parallel_no_items(self) -> None:
+        """Test that empty items returns success."""
+        result = self.ast.execute_parallel(
+            self.host_config,
+            max_workers=2,
+            username="testuser",
+            password="testpass",
+            items=[],
+        )
+        self.assertEqual(result.status.value, "success")
+        self.assertEqual(result.message, "No items to process")
+
+    def test_execute_parallel_validates_items(self) -> None:
+        """Test that invalid items are skipped."""
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=["valid1", "INVALID", "valid2"],
+                )
+        # Should have skipped the INVALID item
+        skipped = [r for r in result.item_results if r.status == "skipped"]
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0].item_id, "INVALID")
+
+    def test_execute_parallel_handles_auth_failure(self) -> None:
+        """Test that auth failures are properly recorded."""
+        self.ast.should_fail_auth = True
+
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=["item1"],
+                )
+        # Should have failed the item due to auth failure
+        failed = [r for r in result.item_results if r.status == "failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("Login failed", failed[0].error or "")
+
+    def test_execute_parallel_handles_process_failure(self) -> None:
+        """Test that process failures are properly recorded."""
+        self.ast.should_fail_process = True
+
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=["item1"],
+                )
+        failed = [r for r in result.item_results if r.status == "failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("Process failed", failed[0].error or "")
+
+    def test_execute_parallel_reports_progress(self) -> None:
+        """Test that progress is reported for each item."""
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=["item1", "item2"],
+                )
+        # Should have progress calls
+        self.assertTrue(len(self.progress_calls) >= 2)
+
+    def test_execute_parallel_respects_max_workers(self) -> None:
+        """Test that max_workers parameter is included in result data."""
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=5,
+                    username="testuser",
+                    password="testpass",
+                    items=["item1"],
+                )
+        self.assertEqual(result.data.get("parallelWorkers"), 5)
+
+    def test_execute_parallel_cancellation(self) -> None:
+        """Test that cancellation stops processing."""
+        # Cancel after a short delay
+        def cancel_after_delay():
+            time.sleep(0.02)
+            self.ast.cancel()
+
+        cancel_thread = threading.Thread(target=cancel_after_delay)
+        cancel_thread.start()
+
+        # Use more items with small delay to test cancellation
+        self.ast.process_delay = 0.05
+        items = [f"item{i}" for i in range(20)]
+
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=items,
+                )
+
+        cancel_thread.join()
+        self.assertEqual(result.status.value, "cancelled")
+        self.assertIn("Cancelled by user", result.message)
+
+    def test_execute_parallel_success(self) -> None:
+        """Test successful parallel execution."""
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
+            with mock.patch(
+                "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
+            ):
+                result = self.ast.execute_parallel(
+                    self.host_config,
+                    max_workers=2,
+                    username="testuser",
+                    password="testpass",
+                    items=["item1", "item2", "item3"],
+                )
+        self.assertEqual(result.status.value, "success")
+        self.assertEqual(result.data.get("successCount"), 3)
+        self.assertEqual(result.data.get("failedCount"), 0)
+        self.assertEqual(len(result.item_results), 3)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.ast.base import ASTResult, ASTStatus
+from src.core.ast import ASTResult, ASTStatus
 from src.core import TN3270Config, TerminalError
 from src.models import (
     ASTControlMessage,
