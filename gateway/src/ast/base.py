@@ -620,6 +620,115 @@ class AST(ABC):
     # ------------------------------------------------------------------ #
     # Execution helpers
     # ------------------------------------------------------------------ #
+    def _validate_credentials(
+        self, **kwargs: Any
+    ) -> tuple[str | None, str | None, str, str, list[Any]]:
+        """Extract and return execution parameters from kwargs.
+        
+        Returns:
+            Tuple of (username, password, app_user_id, session_id, raw_items)
+        """
+        username = kwargs.get("username")
+        password = kwargs.get("password")
+        app_user_id: str = kwargs.get("userId", "anonymous")
+        raw_items: list[Any] = self.prepare_items(**kwargs)
+        
+        # Set execution and session IDs
+        self._execution_id = kwargs.get("execution_id") or str(uuid4())
+        self._session_id = kwargs.get("sessionId", self._execution_id)
+        
+        return username, password, app_user_id, self._session_id, raw_items
+
+    def _create_credentials_error_result(self) -> ASTResult:
+        """Create an error result for missing credentials."""
+        return ASTResult(
+            status=ASTStatus.FAILED,
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+            message="Missing required parameters: username and password are required",
+            error="ValidationError: username and password must be provided",
+        )
+
+    def _create_initial_result(self, username: str, item_count: int) -> ASTResult:
+        """Create the initial running ASTResult."""
+        return ASTResult(
+            status=ASTStatus.RUNNING,
+            started_at=datetime.now(),
+            data={"username": username, "policyCount": item_count},
+        )
+
+    def _initialize_execution(
+        self, username: str, app_user_id: str, item_count: int, started_at: datetime
+    ) -> None:
+        """Initialize DB and create execution record."""
+        self._init_db()
+        self._create_execution_record(username, app_user_id, item_count, started_at)
+
+    def _finalize_result(
+        self,
+        result: ASTResult,
+        item_results: list[ItemResult],
+        total: int,
+        username: str,
+        is_parallel: bool = False,
+    ) -> None:
+        """Finalize result with counts and update execution record."""
+        success_count = sum(1 for r in item_results if r.status == "success")
+        failed_count = sum(1 for r in item_results if r.status == "failed")
+        skipped_count = sum(1 for r in item_results if r.status == "skipped")
+
+        result.item_results = item_results
+        result.data.update(
+            {
+                "successCount": success_count,
+                "failedCount": failed_count,
+                "skippedCount": skipped_count,
+            }
+        )
+
+        mode_suffix = " (parallel)" if is_parallel else ""
+        
+        if self._cancelled:
+            processed = len(item_results)
+            result.status = ASTStatus.CANCELLED
+            result.message = f"Cancelled by user. Processed {processed}/{total} items."
+            self._update_execution_record("cancelled", result.message, item_results)
+            log.info(f"AST cancelled{mode_suffix}", username=username)
+        else:
+            mode_text = "in parallel " if is_parallel else ""
+            result.status = ASTStatus.SUCCESS
+            result.message = (
+                f"Processed {total} items {mode_text}"
+                f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
+            )
+            self._update_execution_record("success", result.message, item_results)
+            log.info(f"AST completed successfully{mode_suffix}", username=username)
+
+    def _handle_execution_error(
+        self,
+        result: ASTResult,
+        item_results: list[ItemResult],
+        error: Exception,
+        username: str,
+        host: Optional["Host"] = None,
+    ) -> None:
+        """Handle execution error and update records."""
+        result.status = ASTStatus.FAILED
+        result.error = str(error)
+        result.message = f"Error during execution: {error}"
+        result.item_results = item_results
+
+        if host:
+            try:
+                host.show_screen("Error State")
+            except Exception:
+                pass
+
+        self._update_execution_record(
+            "failed", result.message, item_results, error=str(error)
+        )
+        log.exception("AST failed", username=username)
+
     def _record_item_result(
         self,
         item_id: str,
@@ -682,6 +791,45 @@ class AST(ABC):
 
         return duration_ms
 
+    def _process_single_item_workflow(
+        self,
+        host: "Host",
+        item: Any,
+        index: int,
+        total: int,
+        username: str,
+        password: str,
+    ) -> tuple[bool, str | None, dict[str, Any] | None]:
+        """Execute the authenticate -> process -> logoff workflow for a single item.
+        
+        Returns:
+            Tuple of (success, error, item_data)
+        """
+        # Authenticate
+        success, error = self.authenticate(
+            host,
+            user=username,
+            password=password,
+            expected_keywords_after_login=self.auth_expected_keywords,
+            application=self.auth_application,
+            group=self.auth_group,
+        )
+        if not success:
+            return False, f"Login failed: {error}", None
+
+        # Process
+        success, error, item_data = self.process_single_item(host, item, index, total)
+        if not success:
+            return False, f"Process failed: {error}", None
+
+        # Logoff
+        success, error = self.logoff(host)
+        if not success:
+            # Log warning but don't fail the item if logoff fails
+            log.warning("Logoff failed", item=self.get_item_id(item), error=error)
+
+        return True, None, item_data
+
     # ------------------------------------------------------------------ #
     # Execute
     # ------------------------------------------------------------------ #
@@ -690,35 +838,16 @@ class AST(ABC):
         Default execute implementation: login, process each item, logoff.
         Subclasses may override, but typically only implement process_single_item/logoff.
         """
-        username = kwargs.get("username")
-        password = kwargs.get("password")
-        raw_items: list[Any] = self.prepare_items(**kwargs)
-        app_user_id: str = kwargs.get("userId", "anonymous")
-        self._session_id = kwargs.get("sessionId", self._execution_id)
+        username, password, app_user_id, _, raw_items = self._validate_credentials(**kwargs)
 
         if not username or not password:
-            return ASTResult(
-                status=ASTStatus.FAILED,
-                started_at=datetime.now(),
-                completed_at=datetime.now(),
-                message="Missing required parameters: username and password are required",
-                error="ValidationError: username and password must be provided",
-            )
+            return self._create_credentials_error_result()
 
-        result = ASTResult(
-            status=ASTStatus.RUNNING,
-            started_at=datetime.now(),
-            data={"username": username, "policyCount": len(raw_items)},
-        )
-
+        result = self._create_initial_result(username, len(raw_items))
         item_results: list[ItemResult] = []
 
-        self._init_db()
-        self._create_execution_record(
-            username,
-            app_user_id,
-            len(raw_items),
-            result.started_at or datetime.now(),
+        self._initialize_execution(
+            username, app_user_id, len(raw_items), result.started_at or datetime.now()
         )
 
         try:
@@ -761,17 +890,6 @@ class AST(ABC):
                     continue
 
                 try:
-                    success, error = self.authenticate(
-                        host,
-                        user=username,
-                        password=password,
-                        expected_keywords_after_login=self.auth_expected_keywords,
-                        application=self.auth_application,
-                        group=self.auth_group,
-                    )
-                    if not success:
-                        raise Exception(f"Login failed: {error}")
-
                     self.report_progress(
                         current=idx + 1,
                         total=total,
@@ -779,37 +897,28 @@ class AST(ABC):
                         item_status="running",
                         message=f"Item {idx + 1}/{total}: Processing",
                     )
-                    success, error, item_data = self.process_single_item(
-                        host, item, idx + 1, total
+                    
+                    success, error, item_data = self._process_single_item_workflow(
+                        host, item, idx + 1, total, username, password
                     )
-                    if not success:
-                        raise Exception(f"Process failed: {error}")
 
-                    self.report_progress(
-                        current=idx + 1,
-                        total=total,
-                        current_item=item_id,
-                        item_status="running",
-                        message=f"Item {idx + 1}/{total}: Logging off",
-                    )
-                    success, error = self.logoff(host)
-                    if not success:
-                        raise Exception(f"Logoff failed: {error}")
-
-                    duration_ms = self._record_item_result(
-                        item_id=item_id,
-                        status="success",
-                        item_start=item_start,
-                        item_results=item_results,
-                        current=idx + 1,
-                        total=total,
-                        item_data=item_data,
-                    )
-                    log.info(
-                        "Item completed successfully",
-                        item=item_id,
-                        duration_ms=duration_ms,
-                    )
+                    if success:
+                        duration_ms = self._record_item_result(
+                            item_id=item_id,
+                            status="success",
+                            item_start=item_start,
+                            item_results=item_results,
+                            current=idx + 1,
+                            total=total,
+                            item_data=item_data,
+                        )
+                        log.info(
+                            "Item completed successfully",
+                            item=item_id,
+                            duration_ms=duration_ms,
+                        )
+                    else:
+                        raise Exception(error)
 
                 except Exception as e:
                     error_screen = None
@@ -843,50 +952,10 @@ class AST(ABC):
                     except Exception:
                         log.warning("Recovery logoff failed, continuing...")
 
-            success_count = sum(1 for r in item_results if r.status == "success")
-            failed_count = sum(1 for r in item_results if r.status == "failed")
-            skipped_count = sum(1 for r in item_results if r.status == "skipped")
-
-            if not self.is_cancelled:
-                result.status = ASTStatus.SUCCESS
-                result.message = (
-                    f"Processed {total} items "
-                    f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
-                )
-            result.item_results = item_results
-            result.data.update(
-                {
-                    "successCount": success_count,
-                    "failedCount": failed_count,
-                    "skippedCount": skipped_count,
-                }
-            )
-
-            if self.is_cancelled:
-                self._update_execution_record(
-                    "cancelled", result.message or "Cancelled by user", item_results
-                )
-                log.info("AST cancelled", username=username)
-            else:
-                self._update_execution_record(
-                    "success", result.message or "", item_results
-                )
-                log.info("AST completed successfully", username=username)
+            self._finalize_result(result, item_results, total, username, is_parallel=False)
 
         except Exception as e:
-            result.status = ASTStatus.FAILED
-            result.error = str(e)
-            result.message = f"Error during execution: {e}"
-            try:
-                host.show_screen("Error State")
-            except Exception:
-                pass
-            result.item_results = item_results
-
-            self._update_execution_record(
-                "failed", result.message, item_results, error=str(e)
-            )
-            log.exception("AST failed", username=username)
+            self._handle_execution_error(result, item_results, e, username, host)
 
         return result
 
@@ -920,28 +989,12 @@ class AST(ABC):
         Returns:
             ASTResult with execution status and data
         """
-        username = kwargs.get("username")
-        password = kwargs.get("password")
-        raw_items: list[Any] = self.prepare_items(**kwargs)
-        app_user_id: str = kwargs.get("userId", "anonymous")
-        self._execution_id = kwargs.get("execution_id") or str(uuid4())
-        self._session_id = kwargs.get("sessionId", self._execution_id)
+        username, password, app_user_id, _, raw_items = self._validate_credentials(**kwargs)
 
         if not username or not password:
-            return ASTResult(
-                status=ASTStatus.FAILED,
-                started_at=datetime.now(),
-                completed_at=datetime.now(),
-                message="Missing required parameters: username and password are required",
-                error="ValidationError: username and password must be provided",
-            )
+            return self._create_credentials_error_result()
 
-        result = ASTResult(
-            status=ASTStatus.RUNNING,
-            started_at=datetime.now(),
-            data={"username": username, "policyCount": len(raw_items)},
-        )
-
+        result = self._create_initial_result(username, len(raw_items))
         item_results: list[ItemResult] = []
         processed_count = 0
         total = len(raw_items)
@@ -949,12 +1002,8 @@ class AST(ABC):
         # Thread-safe lock for updating shared state
         results_lock = threading.Lock()
 
-        self._init_db()
-        self._create_execution_record(
-            username,
-            app_user_id,
-            total,
-            result.started_at or datetime.now(),
+        self._initialize_execution(
+            username, app_user_id, total, result.started_at or datetime.now()
         )
 
         def process_item_with_ati(
@@ -1009,44 +1058,24 @@ class AST(ABC):
                 # Wait for initial screen
                 ati_instance.wait(2)
 
-                # Create Host wrapper
+                # Create Host wrapper and process using shared workflow
                 host = Host(tnz)
-
-                # Authenticate (screen state logged via show_screen)
-                success, error = self.authenticate(
-                    host,
-                    user=username,
-                    password=password,
-                    expected_keywords_after_login=self.auth_expected_keywords,
-                    application=self.auth_application,
-                    group=self.auth_group,
+                success, error, item_data = self._process_single_item_workflow(
+                    host, item, index + 1, total, username, password
                 )
-
-                if not success:
-                    raise Exception(f"Login failed: {error}")
-
-                # Process the item
-                success, error, item_data = self.process_single_item(
-                    host, item, index + 1, total
-                )
-                if not success:
-                    raise Exception(f"Process failed: {error}")
-
-                # Logoff (screen state logged via show_screen)
-                success, error = self.logoff(host)
-                if not success:
-                    log.warning("Logoff failed", item=item_id, error=error)
 
                 item_end = datetime.now()
                 duration_ms = int((item_end - item_start).total_seconds() * 1000)
 
-                log.info(
-                    "Item completed successfully (parallel)",
-                    item=item_id,
-                    duration_ms=duration_ms,
-                )
-
-                return item_id, "success", duration_ms, None, item_data, item_start
+                if success:
+                    log.info(
+                        "Item completed successfully (parallel)",
+                        item=item_id,
+                        duration_ms=duration_ms,
+                    )
+                    return item_id, "success", duration_ms, None, item_data, item_start
+                else:
+                    raise Exception(error)
 
             except Exception as e:
                 item_end = datetime.now()
@@ -1092,9 +1121,6 @@ class AST(ABC):
                         # Cancel pending futures (running tasks cannot be cancelled)
                         for f in future_to_item:
                             f.cancel()
-                        # Note: shutdown(wait=False) would not wait for running tasks,
-                        # but the context manager handles cleanup. Breaking here prevents
-                        # processing more results while letting active tasks finish.
                         break
 
                     item, idx = future_to_item[future]
@@ -1167,49 +1193,12 @@ class AST(ABC):
                                 )
                             )
 
-            success_count = sum(1 for r in item_results if r.status == "success")
-            failed_count = sum(1 for r in item_results if r.status == "failed")
-            skipped_count = sum(1 for r in item_results if r.status == "skipped")
-
-            if self._cancelled:
-                result.status = ASTStatus.CANCELLED
-                result.message = f"Cancelled by user. Processed {processed_count}/{total} items."
-            else:
-                result.status = ASTStatus.SUCCESS
-                result.message = (
-                    f"Processed {total} items in parallel "
-                    f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
-                )
-
-            result.item_results = item_results
-            result.data.update(
-                {
-                    "successCount": success_count,
-                    "failedCount": failed_count,
-                    "skippedCount": skipped_count,
-                    "parallelWorkers": max_workers,
-                }
-            )
-
-            if self._cancelled:
-                self._update_execution_record(
-                    "cancelled", result.message, item_results
-                )
-                log.info("AST cancelled (parallel)", username=username)
-            else:
-                self._update_execution_record("success", result.message, item_results)
-                log.info("AST completed successfully (parallel)", username=username)
+            # Add parallel-specific data before finalization
+            result.data["parallelWorkers"] = max_workers
+            self._finalize_result(result, item_results, total, username, is_parallel=True)
 
         except Exception as e:
-            result.status = ASTStatus.FAILED
-            result.error = str(e)
-            result.message = f"Error during parallel execution: {e}"
-            result.item_results = item_results
-
-            self._update_execution_record(
-                "failed", result.message, item_results, error=str(e)
-            )
-            log.exception("AST failed (parallel)", username=username)
+            self._handle_execution_error(result, item_results, e, username)
 
         result.completed_at = datetime.now()
         return result
