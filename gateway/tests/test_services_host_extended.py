@@ -164,6 +164,9 @@ class HostExtendedTests(unittest.TestCase):
         def warning(self, message: str, **kwargs) -> None:  # type: ignore[override]
             self.warn_messages.append(message)
 
+        def error(self, message: str, **kwargs) -> None:  # type: ignore[override]
+            self.messages.append(message)
+
     def test_screen_helpers(self) -> None:
         formatted = self.host.get_formatted_screen(show_row_numbers=False)
         self.assertIn("User", formatted)
@@ -173,7 +176,7 @@ class HostExtendedTests(unittest.TestCase):
         self.assertIn("User", self.host.get_row(0))
         position = self.host.find_text("User")
         self.assertIsNotNone(position)
-        self.assertTrue(self.host.contains_text("user", case_sensitive=False))
+        self.assertTrue(self.host.screen_contains("user", case_sensitive=False))
 
     def test_show_screen_redacts_password_and_logs_without_title(self) -> None:
         dummy_log = self._DummyLog()
@@ -318,7 +321,7 @@ class HostExtendedTests(unittest.TestCase):
         self.assertIn("Host", repr(self.host))
 
     def test_wait_for_text_timeout_and_keyboard_timeout(self) -> None:
-        self.host.contains_text = lambda *args, **kwargs: False  # type: ignore[assignment]
+        self.host.screen_contains = lambda *args, **kwargs: False  # type: ignore[assignment]
         self.assertFalse(self.host.wait_for_text("Never", timeout=0.01))
 
         self.tnz.pwait = 1

@@ -401,7 +401,7 @@ class Host:
             maxcol = self.cols
 
             # Get full screen content
-            full_screen = self._tnz.scrstr(saddr=0, eaddr=maxrow * maxcol)
+            full_screen = self._tnz.scrstr(0, maxrow * maxcol)
             if not full_screen:
                 log.warning("Screen buffer is empty")
                 return None
@@ -500,7 +500,7 @@ class Host:
             maxcol = self.cols
 
             # Get full screen content
-            full_screen = self._tnz.scrstr(saddr=0, eaddr=maxrow * maxcol)
+            full_screen = self._tnz.scrstr(0, maxrow * maxcol)
             if not full_screen:
                 return ""
 
