@@ -25,6 +25,10 @@ export type WebSocketEventHandler = {
   onError: (error: Error) => void;
 };
 
+// Track sessions that have been initialized to avoid duplicate session.create messages
+// (React StrictMode can cause double-mounts)
+const initializedSessions = new Set<string>();
+
 export class TerminalWebSocket {
   private ws: WebSocket | null = null;
   private sessionId: string;
@@ -79,13 +83,17 @@ export class TerminalWebSocket {
       this.handlers.onStatusChange('connected');
       this.startHeartbeat();
 
-      // Send session create message for TN3270 terminal
-      const createMsg = createSessionCreateMessage(this.sessionId, {
-        terminalType: 'tn3270',
-        cols: 80,
-        rows: 43,
-      });
-      this.sendRaw(serializeMessage(createMsg));
+      // Only send session create message if not already initialized
+      // (React StrictMode can cause double-mounts, and we don't want duplicate session.create)
+      if (!initializedSessions.has(this.sessionId)) {
+        initializedSessions.add(this.sessionId);
+        const createMsg = createSessionCreateMessage(this.sessionId, {
+          terminalType: 'tn3270',
+          cols: 80,
+          rows: 43,
+        });
+        this.sendRaw(serializeMessage(createMsg));
+      }
     };
 
     this.ws.onmessage = (event: MessageEvent<string>): void => {
@@ -218,6 +226,8 @@ export class TerminalWebSocket {
     if (destroySession && this.ws?.readyState === WebSocket.OPEN) {
       const destroyMsg = createSessionDestroyMessage(this.sessionId);
       this.sendRaw(serializeMessage(destroyMsg));
+      // Clear from initialized sessions so a new session with same ID can be created
+      initializedSessions.delete(this.sessionId);
     }
 
     if (this.ws) {
