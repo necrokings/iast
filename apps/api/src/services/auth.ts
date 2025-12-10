@@ -26,6 +26,7 @@ const JWKS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 /**
  * Get or create cached JWKS for Azure AD token validation
+ * Note: If behind a corporate proxy, set HTTPS_PROXY or HTTP_PROXY environment variable
  */
 async function getJWKS(): Promise<jose.JWTVerifyGetKey> {
   const now = Date.now();
@@ -34,7 +35,11 @@ async function getJWKS(): Promise<jose.JWTVerifyGetKey> {
     return jwksCache;
   }
 
-  const jwksUri = `https://login.microsoftonline.com/${config.auth.entraTenantId}/discovery/v2.0/keys`;
+  // Use common endpoint which works for multi-tenant apps
+  const jwksUri = `https://login.microsoftonline.com/common/discovery/v2.0/keys`;
+  
+  console.log(`Fetching JWKS from: ${jwksUri}`);
+  
   jwksCache = jose.createRemoteJWKSet(new URL(jwksUri));
   jwksCacheTime = now;
   
@@ -49,8 +54,16 @@ export async function verifyEntraToken(token: string): Promise<EntraTokenPayload
   try {
     const jwks = await getJWKS();
     
+    // Accept both api://clientId and clientId as valid audiences
+    const configuredAudience = config.auth.entraAudience;
+    const audiences = [
+      configuredAudience,
+      configuredAudience.replace('api://', ''),
+      `api://${configuredAudience}`,
+    ].filter((v, i, a) => a.indexOf(v) === i); // unique values
+    
     const { payload } = await jose.jwtVerify(token, jwks, {
-      audience: config.auth.entraAudience,
+      audience: audiences,
       issuer: `https://login.microsoftonline.com/${config.auth.entraTenantId}/v2.0`,
     });
 

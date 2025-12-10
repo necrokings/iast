@@ -2,7 +2,7 @@
 // Fastify Server Application
 // ============================================================================
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from '../config';
@@ -10,7 +10,7 @@ import { authRoutes, historyRoutes, sessionRoutes } from '../routes';
 import { terminalWebSocket } from '../ws';
 import { closeValkeyClient } from '../valkey';
 
-export async function buildApp(): Promise<ReturnType<typeof Fastify>> {
+export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: config.logLevel,
