@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 from uuid import uuid4
 
 import structlog
+from tnz.ati import Ati
 
 from ..db import get_dynamodb_client
+from ..services.tn3270.host import Host
 
 if TYPE_CHECKING:
     from ..db import DynamoDBClient
-    from ..services.tn3270.host import Host
-    from tnz.ati import Ati
 
 log = structlog.get_logger()
 
@@ -927,10 +927,6 @@ class AST(ABC):
         Returns:
             ASTResult with execution status and data
         """
-        from tnz.ati import Ati
-
-        from ..services.tn3270.host import Host
-
         username = kwargs.get("username")
         password = kwargs.get("password")
         raw_items: list[Any] = self.prepare_items(**kwargs)
@@ -953,7 +949,6 @@ class AST(ABC):
             data={"username": username, "policyCount": len(raw_items)},
         )
 
-        all_screenshots: list[str] = []
         item_results: list[ItemResult] = []
         processed_count = 0
         total = len(raw_items)
@@ -1024,8 +1019,8 @@ class AST(ABC):
                 # Create Host wrapper
                 host = Host(tnz)
 
-                # Authenticate
-                success, error, screenshots = self.authenticate(
+                # Authenticate (screenshots logged via show_screen, not collected)
+                success, error, _ = self.authenticate(
                     host,
                     user=username,
                     password=password,
@@ -1033,8 +1028,6 @@ class AST(ABC):
                     application=self.auth_application,
                     group=self.auth_group,
                 )
-                with results_lock:
-                    all_screenshots.extend(screenshots)
 
                 if not success:
                     raise Exception(f"Login failed: {error}")
@@ -1046,10 +1039,8 @@ class AST(ABC):
                 if not success:
                     raise Exception(f"Process failed: {error}")
 
-                # Logoff
-                success, error, screenshots = self.logoff(host)
-                with results_lock:
-                    all_screenshots.extend(screenshots)
+                # Logoff (screenshots logged via show_screen, not collected)
+                success, error, _ = self.logoff(host)
                 if not success:
                     log.warning("Logoff failed", item=item_id, error=error)
 
@@ -1206,7 +1197,7 @@ class AST(ABC):
                     "parallelWorkers": max_workers,
                 }
             )
-            result.screenshots = all_screenshots
+            # Note: screenshots not collected in parallel mode (logged via show_screen instead)
 
             if self._cancelled:
                 self._update_execution_record(
@@ -1221,7 +1212,6 @@ class AST(ABC):
             result.status = ASTStatus.FAILED
             result.error = str(e)
             result.message = f"Error during parallel execution: {e}"
-            result.screenshots = all_screenshots
             result.item_results = item_results
 
             self._update_execution_record(
