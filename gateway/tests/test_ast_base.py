@@ -26,7 +26,7 @@ class SampleAST(AST):
         self.executed_with: dict | None = None
 
     def logoff(self, host: DummyHost):
-        return True, "", []
+        return True, ""
 
     def process_single_item(self, host: DummyHost, item_id: str, index: int, total: int):
         return True, "", {}
@@ -150,13 +150,13 @@ class ParallelASTForTesting(AST):
         group: str = "",
     ):
         if self.should_fail_auth:
-            return False, "Auth failed", []
-        return True, "", []
+            return False, "Auth failed"
+        return True, ""
 
     def logoff(self, host, target_screen_keywords=None):
         if self.should_fail_logoff:
-            return False, "Logoff failed", []
-        return True, "", []
+            return False, "Logoff failed"
+        return True, ""
 
     def process_single_item(self, host, item, index: int, total: int):
         time.sleep(self.process_delay)

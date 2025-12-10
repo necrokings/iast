@@ -122,10 +122,8 @@ class LoginAST(AST):
         log.warning("Failed to reach expected sign-off screen")
         return False
 
-    def logoff(self, host: "Host", target_screen_keywords: list[str] | None = None) -> tuple[bool, str, list[str]]:
+    def logoff(self, host: "Host", target_screen_keywords: list[str] | None = None) -> tuple[bool, str]:
         """Implement abstract logoff using sign_off."""
-        screenshots: list[str] = []
-
         log.info("🔒 Signing off from terminal session...")
         max_backoff_count = 20
         while (
@@ -144,11 +142,11 @@ class LoginAST(AST):
         for keyword in target_keywords:
             if host.wait_for_text(keyword, timeout=10):
                 log.info("✅ Signed off successfully.", keyword=keyword)
-                screenshots.append(host.show_screen("Signed Off"))
-                return True, "", screenshots
+                host.show_screen("Signed Off")
+                return True, ""
 
-        screenshots.append(host.show_screen("Sign Off Failed"))
-        return False, "Failed to sign off", screenshots
+        host.show_screen("Sign Off Failed")
+        return False, "Failed to sign off"
 
     def validate_item(self, item: Any) -> bool:
         return validate_policy_number(str(item))

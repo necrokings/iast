@@ -61,7 +61,6 @@ class ASTResult:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
-    screenshots: list[str] = field(default_factory=lambda: [])
     item_results: list[ItemResult] = field(default_factory=lambda: [])
 
     @property
@@ -458,7 +457,7 @@ class AST(ABC):
         expected_keywords_after_login: list[str],
         application: str = "",
         group: str = "",
-    ) -> tuple[bool, str, list[str]]:
+    ) -> tuple[bool, str]:
         """Authenticate to the mainframe system.
 
         Common authentication logic that can be used by all AST subclasses.
@@ -473,17 +472,15 @@ class AST(ABC):
             group: Group name (optional)
 
         Returns:
-            Tuple of (success, error_message, screenshots)
+            Tuple of (success, error_message)
         """
-        screenshots: list[str] = []
-
         # Check if already at expected post-login screen (already authenticated)
         if expected_keywords_after_login:
             for keyword in expected_keywords_after_login:
                 if host.screen_contains(keyword):
                     log.info("Already at expected screen", keyword=keyword)
-                    screenshots.append(host.show_screen("Already Authenticated"))
-                    return True, "", screenshots
+                    host.show_screen("Already Authenticated")
+                    return True, ""
 
         # Perform authentication
         log.info("Starting authentication", user=user)
@@ -493,15 +490,15 @@ class AST(ABC):
             if not host.fill_field_by_label("Userid", user, case_sensitive=False):
                 error_msg = "Failed to find Userid field"
                 log.error(error_msg)
-                screenshots.append(host.show_screen("Userid Field Not Found"))
-                return False, error_msg, screenshots
+                host.show_screen("Userid Field Not Found")
+                return False, error_msg
 
             # Fill password field
             if not host.fill_field_by_label("Password", password, case_sensitive=False):
                 error_msg = "Failed to find Password field"
                 log.error(error_msg)
-                screenshots.append(host.show_screen("Password Field Not Found"))
-                return False, error_msg, screenshots
+                host.show_screen("Password Field Not Found")
+                return False, error_msg
 
             # Fill application field if provided
             if application and not host.fill_field_by_label(
@@ -523,31 +520,33 @@ class AST(ABC):
                 for keyword in expected_keywords_after_login:
                     if host.wait_for_text(keyword):
                         log.info("Authentication successful", keyword=keyword)
-                        screenshots.append(
-                            host.show_screen("Authentication Successful")
-                        )
-                        return True, "", screenshots
+                        host.show_screen("Authentication Successful")
+                        return True, ""
 
                 error_msg = f"Authentication may have failed - expected keywords not found: {expected_keywords_after_login}"
                 log.error(error_msg)
-                screenshots.append(host.show_screen("Authentication Failed"))
-                return False, error_msg, screenshots
+                host.show_screen("Authentication Failed")
+                return False, error_msg
 
             log.info("Authentication completed")
-            screenshots.append(host.show_screen("Authentication Completed"))
-            return True, "", screenshots
+            host.show_screen("Authentication Completed")
+            return True, ""
 
         except Exception as e:
             error_msg = f"Exception during authentication: {str(e)}"
             log.error("Exception during authentication", error=str(e), exc_info=True)
-            screenshots.append(host.show_screen("Authentication Exception"))
-            return False, error_msg, screenshots
+            host.show_screen("Authentication Exception")
+            return False, error_msg
 
     @abstractmethod
     def logoff(
         self, host: "Host", target_screen_keywords: list[str] | None = None
-    ) -> tuple[bool, str, list[str]]:
-        """Logoff flow implemented by subclasses."""
+    ) -> tuple[bool, str]:
+        """Logoff flow implemented by subclasses.
+        
+        Returns:
+            Tuple of (success, error_message)
+        """
         raise NotImplementedError("Subclasses must implement logoff method")
 
     def validate_item(self, item: Any) -> bool:
@@ -712,7 +711,6 @@ class AST(ABC):
             data={"username": username, "policyCount": len(raw_items)},
         )
 
-        all_screenshots: list[str] = []
         item_results: list[ItemResult] = []
 
         self._init_db()
@@ -763,7 +761,7 @@ class AST(ABC):
                     continue
 
                 try:
-                    success, error, screenshots = self.authenticate(
+                    success, error = self.authenticate(
                         host,
                         user=username,
                         password=password,
@@ -771,7 +769,6 @@ class AST(ABC):
                         application=self.auth_application,
                         group=self.auth_group,
                     )
-                    all_screenshots.extend(screenshots)
                     if not success:
                         raise Exception(f"Login failed: {error}")
 
@@ -795,8 +792,7 @@ class AST(ABC):
                         item_status="running",
                         message=f"Item {idx + 1}/{total}: Logging off",
                     )
-                    success, error, screenshots = self.logoff(host)
-                    all_screenshots.extend(screenshots)
+                    success, error = self.logoff(host)
                     if not success:
                         raise Exception(f"Logoff failed: {error}")
 
@@ -866,8 +862,6 @@ class AST(ABC):
                 }
             )
 
-            result.screenshots = all_screenshots
-
             if self.is_cancelled:
                 self._update_execution_record(
                     "cancelled", result.message or "Cancelled by user", item_results
@@ -884,10 +878,9 @@ class AST(ABC):
             result.error = str(e)
             result.message = f"Error during execution: {e}"
             try:
-                all_screenshots.append(host.show_screen("Error State"))
+                host.show_screen("Error State")
             except Exception:
                 pass
-            result.screenshots = all_screenshots
             result.item_results = item_results
 
             self._update_execution_record(
@@ -1019,8 +1012,8 @@ class AST(ABC):
                 # Create Host wrapper
                 host = Host(tnz)
 
-                # Authenticate (screenshots logged via show_screen, not collected)
-                success, error, _ = self.authenticate(
+                # Authenticate (screen state logged via show_screen)
+                success, error = self.authenticate(
                     host,
                     user=username,
                     password=password,
@@ -1039,8 +1032,8 @@ class AST(ABC):
                 if not success:
                     raise Exception(f"Process failed: {error}")
 
-                # Logoff (screenshots logged via show_screen, not collected)
-                success, error, _ = self.logoff(host)
+                # Logoff (screen state logged via show_screen)
+                success, error = self.logoff(host)
                 if not success:
                     log.warning("Logoff failed", item=item_id, error=error)
 
@@ -1197,7 +1190,6 @@ class AST(ABC):
                     "parallelWorkers": max_workers,
                 }
             )
-            # Note: screenshots not collected in parallel mode (logged via show_screen instead)
 
             if self._cancelled:
                 self._update_execution_record(
