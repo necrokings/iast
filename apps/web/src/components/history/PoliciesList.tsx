@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { Check, X, Circle, Pause } from 'lucide-react'
 import { Breadcrumb } from './Breadcrumb'
 import { StatusIcon } from './StatusIcon'
+import { Tooltip } from '../ui'
 import { STATUS_COLORS, type ExecutionRecord, type PolicyRecord } from './types'
 
 interface PoliciesListProps {
@@ -103,10 +104,10 @@ export function PoliciesList({
           <div className="flex items-center gap-2">
             {isLive && (
               <span className={`px-2 py-0.5 text-xs rounded-full flex items-center gap-1 ${observerStatus === 'connected'
-                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                  : observerStatus === 'connecting'
-                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-                    : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400'
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                : observerStatus === 'connecting'
+                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                  : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400'
                 }`}>
                 <span className={`w-2 h-2 rounded-full ${observerStatus === 'connected' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-zinc-500'}`} />
                 {observerStatus === 'connected' ? ' Live' : observerStatus === 'connecting' ? ' Connecting...' : ' Disconnected'}
@@ -155,29 +156,31 @@ export function PoliciesList({
                   Resume
                 </button>
               ) : (
+                <Tooltip content="Pause after current item completes or fails" position="bottom">
+                  <button
+                    type="button"
+                    onClick={onPause}
+                    className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z" />
+                    </svg>
+                    Pause
+                  </button>
+                </Tooltip>
+              )}
+              <Tooltip content="Stop after current item completes or fails" position="bottom">
                 <button
                   type="button"
-                  onClick={onPause}
-                  title="Pause after current item completes or fails"
-                  className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+                  onClick={onCancel}
+                  className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z" />
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
                   </svg>
-                  Pause
+                  Stop
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={onCancel}
-                title="Stop after current item completes or fails"
-                className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                </svg>
-                Stop
-              </button>
+              </Tooltip>
             </div>
           </div>
         )}

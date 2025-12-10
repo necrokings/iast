@@ -6,6 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { useAST } from '../hooks/useAST';
 import { Pause, Play } from 'lucide-react';
+import { Tooltip } from './ui';
 import type { ConnectionStatus } from '../types';
 import type { ASTStatusMeta, ASTProgressMeta, ASTItemResultMeta } from '@terminal/shared';
 import '@xterm/xterm/css/xterm.css';
@@ -278,28 +279,30 @@ export function Terminal({ sessionId, autoConnect = true, onStatusChange, onRead
               <span className={`text-xs mr-1 flex items-center gap-1 ${isPaused ? 'text-yellow-400' : 'text-yellow-400 animate-pulse'}`}>
                 {isPaused ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} {runningAST}
               </span>
-              <button
-                onClick={() => {
-                  if (isPaused) {
-                    resumeAST();
-                  } else {
-                    pauseAST();
-                  }
-                }}
-                title={isPaused ? 'Resume AST execution' : 'Pause after current item completes or fails'}
-                className="px-3 py-1.5 text-xs rounded border cursor-pointer transition-colors
-                  bg-yellow-600 text-white border-yellow-600 hover:bg-yellow-700"
-              >
-                {isPaused ? 'Resume' : 'Pause'}
-              </button>
-              <button
-                onClick={() => cancelAST()}
-                title="Stop after current item completes or fails"
-                className="px-3 py-1.5 text-xs rounded border cursor-pointer transition-colors
-                  bg-red-600 text-white border-red-600 hover:bg-red-700"
-              >
-                Stop
-              </button>
+              <Tooltip content={isPaused ? 'Resume AST execution' : 'Pause after current item completes or fails'} position="bottom">
+                <button
+                  onClick={() => {
+                    if (isPaused) {
+                      resumeAST();
+                    } else {
+                      pauseAST();
+                    }
+                  }}
+                  className="px-3 py-1.5 text-xs rounded border cursor-pointer transition-colors
+                    bg-yellow-600 text-white border-yellow-600 hover:bg-yellow-700"
+                >
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+              </Tooltip>
+              <Tooltip content="Stop after current item completes or fails" position="bottom">
+                <button
+                  onClick={() => cancelAST()}
+                  className="px-3 py-1.5 text-xs rounded border cursor-pointer transition-colors
+                    bg-red-600 text-white border-red-600 hover:bg-red-700"
+                >
+                  Stop
+                </button>
+              </Tooltip>
             </div>
           )}
         </div>
