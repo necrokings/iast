@@ -17,7 +17,7 @@ import {
   serializeMessage,
   deserializeMessage,
 } from '@terminal/shared';
-import { getStoredToken } from '../utils/storage';
+import { getAccessToken } from '../utils/tokenAccessor';
 
 export type WebSocketEventHandler = {
   onMessage: (message: MessageEnvelope) => void;
@@ -48,13 +48,18 @@ export class TerminalWebSocket {
     this.isClosing = false;
     this.handlers.onStatusChange('connecting');
 
-    const token = getStoredToken();
-    const params = new URLSearchParams();
-    if (token) params.set('token', token);
-    const queryString = params.toString();
-    const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${queryString ? `?${queryString}` : ''}`;
+    // Get token asynchronously and then connect
+    this.connectWithToken();
+  }
 
+  private async connectWithToken(): Promise<void> {
     try {
+      const token = await getAccessToken();
+      const params = new URLSearchParams();
+      if (token) params.set('token', token);
+      const queryString = params.toString();
+      const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${queryString ? `?${queryString}` : ''}`;
+
       this.ws = new WebSocket(url);
       this.setupEventListeners();
     } catch (error) {

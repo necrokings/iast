@@ -1,181 +1,141 @@
 // ============================================================================
-// useAuth Hook - Authentication State Management with Persistence
+// useAuth Hook - MSAL Authentication State Management
 // ============================================================================
 
 import { useState, useEffect, useCallback } from 'react';
-import type { AuthState } from '../types';
-import type { LoginRequest, RegisterRequest } from '@terminal/shared';
-import {
-  login as apiLogin,
-  register as apiRegister,
-  logout as apiLogout,
-  validateToken,
-} from '../services/auth';
-import {
-  getStoredToken,
-  getStoredUser,
-  getStoredExpiresAt,
-  isTokenExpired,
-  clearAuthStorage,
-} from '../utils/storage';
+import { useMsal, useAccount } from '@azure/msal-react';
+import { InteractionStatus, InteractionRequiredAuthError } from '@azure/msal-browser';
+import { apiConfig, loginRequest } from '../config/authConfig';
+import { setTokenAccessor, clearTokenAccessor } from '../utils/tokenAccessor';
+
+export interface UserInfo {
+  id: string;
+  name: string;
+  email: string;
+  username: string;
+}
 
 export interface UseAuthReturn {
-  state: AuthState;
-  login: (request: LoginRequest) => Promise<boolean>;
-  register: (request: RegisterRequest) => Promise<boolean>;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  userInfo: UserInfo | null;
+  getApiAccessToken: () => Promise<string | null>;
+  login: () => Promise<void>;
   logout: () => Promise<void>;
-  checkAuth: () => Promise<boolean>;
 }
 
 export function useAuth(): UseAuthReturn {
-  const [state, setState] = useState<AuthState>({
-    isAuthenticated: false,
-    user: null,
-    token: null,
-    expiresAt: null,
-    isLoading: true,
-    error: null,
-  });
+  const { instance, accounts, inProgress } = useMsal();
+  const account = useAccount(accounts[0] || null);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Check stored auth on mount
+  // Extract user info from account
   useEffect(() => {
-    const initAuth = async (): Promise<void> => {
-      const token = getStoredToken();
-      const user = getStoredUser();
-      const expiresAt = getStoredExpiresAt();
+    if (account) {
+      setUserInfo({
+        id: account.localAccountId,
+        name: account.name || '',
+        email: account.username || '',
+        username: account.username || '',
+      });
+      setIsAuthenticated(true);
+    } else {
+      setUserInfo(null);
+      setIsAuthenticated(false);
+    }
+  }, [account]);
 
-      if (token && user && !isTokenExpired()) {
-        // Validate token with server
-        const isValid = await validateToken();
-        if (isValid) {
-          setState({
-            isAuthenticated: true,
-            user,
-            token,
-            expiresAt,
-            isLoading: false,
-            error: null,
+  /**
+   * Get API access token for backend authentication
+   * Uses custom API scope configured in Azure
+   */
+  const getApiAccessToken = useCallback(async (): Promise<string | null> => {
+    if (!account) {
+      console.warn('No active account! Sign in before calling an API.');
+      return null;
+    }
+
+    if (inProgress !== InteractionStatus.None) {
+      return null;
+    }
+
+    try {
+      // Get access token silently with API scope
+      const response = await instance.acquireTokenSilent({
+        scopes: apiConfig.scopes,
+        account: account,
+      });
+
+      return response.accessToken;
+    } catch (error) {
+      console.error('API token acquisition error:', error);
+      if (error instanceof InteractionRequiredAuthError) {
+        try {
+          await instance.acquireTokenRedirect({
+            scopes: apiConfig.scopes,
+            account,
           });
-          return;
+          return null;
+        } catch (redirectError) {
+          console.error('API token acquisition redirect failed:', redirectError);
+          return null;
         }
       }
-
-      // Clear invalid auth
-      clearAuthStorage();
-      setState({
-        isAuthenticated: false,
-        user: null,
-        token: null,
-        expiresAt: null,
-        isLoading: false,
-        error: null,
-      });
-    };
-
-    void initAuth();
-  }, []);
-
-  const login = useCallback(async (request: LoginRequest): Promise<boolean> => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
-
-    const result = await apiLogin(request);
-
-    if (result.success) {
-      const { user, token, expiresAt } = result.data;
-      setState({
-        isAuthenticated: true,
-        user: { id: user.id, email: user.email },
-        token,
-        expiresAt,
-        isLoading: false,
-        error: null,
-      });
-      return true;
+      return null;
     }
+  }, [account, instance, inProgress]);
 
-    setState((prev) => ({
-      ...prev,
-      isLoading: false,
-      error: result.error.message,
-    }));
-    return false;
-  }, []);
-
-  const register = useCallback(async (request: RegisterRequest): Promise<boolean> => {
-    setState((prev) => ({ ...prev, isLoading: true, error: null }));
-
-    const result = await apiRegister(request);
-
-    if (result.success) {
-      const { user, token, expiresAt } = result.data;
-      setState({
-        isAuthenticated: true,
-        user: { id: user.id, email: user.email },
-        token,
-        expiresAt,
-        isLoading: false,
-        error: null,
-      });
-      return true;
+  // Set up token accessor for services to use
+  useEffect(() => {
+    if (isAuthenticated && account) {
+      setTokenAccessor(getApiAccessToken);
+    } else {
+      clearTokenAccessor();
     }
+  }, [isAuthenticated, account, getApiAccessToken]);
 
-    setState((prev) => ({
-      ...prev,
-      isLoading: false,
-      error: result.error.message,
-    }));
-    return false;
-  }, []);
-
-  const logout = useCallback(async (): Promise<void> => {
-    await apiLogout();
-    setState({
-      isAuthenticated: false,
-      user: null,
-      token: null,
-      expiresAt: null,
-      isLoading: false,
-      error: null,
-    });
-  }, []);
-
-  const checkAuth = useCallback(async (): Promise<boolean> => {
-    const token = getStoredToken();
-    if (!token || isTokenExpired()) {
-      clearAuthStorage();
-      setState({
-        isAuthenticated: false,
-        user: null,
-        token: null,
-        expiresAt: null,
-        isLoading: false,
-        error: null,
-      });
-      return false;
+  /**
+   * Login user
+   */
+  const login = useCallback(async () => {
+    try {
+      await instance.loginRedirect(loginRequest);
+    } catch (error) {
+      console.error('Login failed:', error);
     }
+  }, [instance]);
 
-    const isValid = await validateToken();
-    if (!isValid) {
-      clearAuthStorage();
-      setState({
-        isAuthenticated: false,
-        user: null,
-        token: null,
-        expiresAt: null,
-        isLoading: false,
-        error: null,
+  /**
+   * Logout user
+   */
+  const logout = useCallback(async () => {
+    try {
+      clearTokenAccessor();
+      await instance.logoutRedirect({
+        account,
       });
-      return false;
+      setUserInfo(null);
+      setIsAuthenticated(false);
+    } catch (error) {
+      console.error('Logout failed:', error);
     }
+  }, [instance, account]);
 
-    return true;
-  }, []);
+  // Set loading to false once MSAL has finished initialization
+  useEffect(() => {
+    if (inProgress === InteractionStatus.None) {
+      setIsLoading(false);
+    }
+  }, [inProgress]);
 
   return {
-    state,
+    isAuthenticated,
+    isLoading,
+    userInfo,
+    getApiAccessToken,
     login,
-    register,
     logout,
-    checkAuth,
   };
 }

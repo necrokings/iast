@@ -68,7 +68,7 @@ export interface UserRecord {
   GSI1PK: string;
   id: string;
   email: string;
-  passwordHash: string;
+  displayName?: string;
   createdAt: number;
   updatedAt: number;
 }

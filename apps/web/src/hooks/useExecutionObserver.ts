@@ -16,7 +16,7 @@ import {
   type ASTStatusMeta,
   type ASTControlAction,
 } from '@terminal/shared';
-import { getStoredToken } from '../utils/storage';
+import { getAccessToken } from '../utils/tokenAccessor';
 
 export type ObserverStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -137,33 +137,38 @@ export function useExecutionObserver({
       return;
     }
 
-    const token = getStoredToken();
-    if (!token) {
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: 'Not authenticated',
-      }));
-      return;
-    }
-
     setState((prev) => ({ ...prev, status: 'connecting', error: null }));
-
-    const params = new URLSearchParams({ token });
-    const url = `${config.wsBaseUrl}/terminal/${sessionId}?${params}`;
 
     // Track if this effect instance is still active (handles React StrictMode double-invocation)
     let isActive = true;
 
-    try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
+    const connectWebSocket = async () => {
+      const token = await getAccessToken();
+      if (!token) {
         if (isActive && mountedRef.current) {
-          setState((prev) => ({ ...prev, status: 'connected', error: null }));
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            error: 'Not authenticated',
+          }));
         }
-      };
+        return;
+      }
+
+      if (!isActive) return;
+
+      const params = new URLSearchParams({ token });
+      const url = `${config.wsBaseUrl}/terminal/${sessionId}?${params}`;
+
+      try {
+        const ws = new WebSocket(url);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (isActive && mountedRef.current) {
+            setState((prev) => ({ ...prev, status: 'connected', error: null }));
+          }
+        };
 
       ws.onmessage = (event: MessageEvent<string>) => {
         // Only process messages if this WebSocket is still the current one
@@ -228,15 +233,18 @@ export function useExecutionObserver({
           wsRef.current = null;
         }
       };
-    } catch (err) {
-      if (isActive && mountedRef.current) {
-        setState((prev) => ({
-          ...prev,
-          status: 'error',
-          error: err instanceof Error ? err.message : 'Failed to connect',
-        }));
+      } catch (err) {
+        if (isActive && mountedRef.current) {
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            error: err instanceof Error ? err.message : 'Failed to connect',
+          }));
+        }
       }
-    }
+    };
+
+    connectWebSocket();
 
     return () => {
       isActive = false;

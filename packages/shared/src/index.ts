@@ -111,19 +111,8 @@ export {
 export {
   type User,
   type UserSession,
-  type AuthSession,
   type AuthTokenPayload,
-  type LoginRequest,
-  type RegisterRequest,
-  type AuthResponse,
-  type RefreshTokenRequest,
-  type RefreshTokenResponse,
-  type ValidationResult,
   isValidEmail,
-  isValidPassword,
-  validateLoginRequest,
-  validateRegisterRequest,
-  AUTH_STORAGE_KEYS,
 } from './auth';
 
 // Config

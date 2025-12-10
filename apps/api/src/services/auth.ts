@@ -1,109 +1,117 @@
 // ============================================================================
-// Auth Service - JWT token management and password hashing
+// Auth Service - Azure Entra ID Token Validation using jose
 // ============================================================================
 
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import * as jose from 'jose';
 import { config } from '../config';
-import type { AuthTokenPayload, User, AuthResponse } from '@terminal/shared';
-import { generateUserId, TerminalError, ERROR_CODES } from '@terminal/shared';
-import { createUser, findUserByEmail, userExists, toPublicUser } from '../models/user';
+import { TerminalError, ERROR_CODES } from '@terminal/shared';
 
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, config.auth.bcryptRounds);
+// Azure AD token payload claims
+export interface EntraTokenPayload {
+  aud: string;           // Audience (API client ID)
+  iss: string;           // Issuer (Azure AD tenant)
+  iat: number;           // Issued at
+  exp: number;           // Expiration
+  sub: string;           // Subject (unique per app)
+  oid: string;           // Object ID (unique across Azure AD)
+  preferred_username?: string;  // User's email/UPN
+  name?: string;         // Display name
+  email?: string;        // Email (if available)
 }
 
-export async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+// Cached JWKS
+let jwksCache: jose.JWTVerifyGetKey | null = null;
+let jwksCacheTime = 0;
+const JWKS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Get or create cached JWKS for Azure AD token validation
+ */
+async function getJWKS(): Promise<jose.JWTVerifyGetKey> {
+  const now = Date.now();
+  
+  if (jwksCache && (now - jwksCacheTime) < JWKS_CACHE_TTL) {
+    return jwksCache;
+  }
+
+  const jwksUri = `https://login.microsoftonline.com/${config.auth.entraTenantId}/discovery/v2.0/keys`;
+  jwksCache = jose.createRemoteJWKSet(new URL(jwksUri));
+  jwksCacheTime = now;
+  
+  return jwksCache;
 }
 
-export function generateToken(user: User): { token: string; expiresAt: number } {
-  const expiresAt = Date.now() + config.auth.tokenExpirationSeconds * 1000;
-
-  const payload: AuthTokenPayload = {
-    sub: user.id,
-    email: user.email,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(expiresAt / 1000),
-  };
-
-  const token = jwt.sign(payload, config.auth.jwtSecret);
-
-  return { token, expiresAt };
-}
-
-export function verifyToken(token: string): AuthTokenPayload {
+/**
+ * Verify an Azure Entra ID access token
+ * Returns the validated payload with user claims
+ */
+export async function verifyEntraToken(token: string): Promise<EntraTokenPayload> {
   try {
-    const payload = jwt.verify(token, config.auth.jwtSecret) as AuthTokenPayload;
-    return payload;
+    const jwks = await getJWKS();
+    
+    const { payload } = await jose.jwtVerify(token, jwks, {
+      audience: config.auth.entraAudience,
+      issuer: `https://login.microsoftonline.com/${config.auth.entraTenantId}/v2.0`,
+    });
+
+    // Validate required claims
+    if (!payload.oid || typeof payload.oid !== 'string') {
+      throw new Error('Missing oid claim');
+    }
+
+    return {
+      aud: payload.aud as string,
+      iss: payload.iss as string,
+      iat: payload.iat as number,
+      exp: payload.exp as number,
+      sub: payload.sub as string,
+      oid: payload.oid as string,
+      preferred_username: payload.preferred_username as string | undefined,
+      name: payload.name as string | undefined,
+      email: (payload.email || payload.preferred_username) as string | undefined,
+    };
   } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
+    if (error instanceof jose.errors.JWTExpired) {
       throw TerminalError.fromCode(ERROR_CODES.AUTH_TOKEN_EXPIRED);
     }
+    if (error instanceof jose.errors.JWTClaimValidationFailed) {
+      throw TerminalError.fromCode(ERROR_CODES.AUTH_INVALID_TOKEN);
+    }
+    if (error instanceof jose.errors.JWSSignatureVerificationFailed) {
+      throw TerminalError.fromCode(ERROR_CODES.AUTH_INVALID_TOKEN);
+    }
+    
+    console.error('Token verification error:', error);
     throw TerminalError.fromCode(ERROR_CODES.AUTH_INVALID_TOKEN);
   }
 }
 
-export async function registerUser(email: string, password: string): Promise<AuthResponse> {
-  // Check if user already exists
-  if (await userExists(email)) {
-    throw new TerminalError({
-      code: ERROR_CODES.VALIDATION_FAILED,
-      message: 'Email already registered',
-    });
-  }
-
-  // Hash password and create user
-  const passwordHash = await hashPassword(password);
-  const user = await createUser({
-    id: generateUserId(),
-    email,
-    passwordHash,
-  });
-
-  // Generate token
-  const { token, expiresAt } = generateToken(user);
-
+/**
+ * Verify token and return standardized payload for backward compatibility
+ * This matches the old AuthTokenPayload interface shape
+ */
+export async function verifyToken(token: string): Promise<{ sub: string; email: string; iat: number; exp: number }> {
+  const entraPayload = await verifyEntraToken(token);
+  
   return {
-    user,
-    token,
-    expiresAt,
+    sub: entraPayload.oid, // Use oid as user ID
+    email: entraPayload.email || entraPayload.preferred_username || '',
+    iat: entraPayload.iat,
+    exp: entraPayload.exp,
   };
 }
 
-export async function loginUser(email: string, password: string): Promise<AuthResponse> {
-  // Find user
-  const user = await findUserByEmail(email);
-  if (!user) {
-    throw TerminalError.fromCode(ERROR_CODES.AUTH_INVALID_CREDENTIALS);
-  }
-
-  // Verify password
-  const isValid = await verifyPassword(password, user.passwordHash);
-  if (!isValid) {
-    throw TerminalError.fromCode(ERROR_CODES.AUTH_INVALID_CREDENTIALS);
-  }
-
-  // Generate token
-  const { token, expiresAt } = generateToken(toPublicUser(user));
-
+/**
+ * Extract user info from Entra token for user provisioning
+ */
+export function extractUserInfo(payload: EntraTokenPayload): {
+  id: string;
+  email: string;
+  displayName: string;
+} {
   return {
-    user: toPublicUser(user),
-    token,
-    expiresAt,
+    id: payload.oid,
+    email: payload.email || payload.preferred_username || '',
+    displayName: payload.name || payload.preferred_username || 'Unknown User',
   };
-}
-
-export async function refreshUserToken(
-  currentToken: string
-): Promise<{ token: string; expiresAt: number }> {
-  const payload = verifyToken(currentToken);
-
-  // Find user to ensure they still exist
-  const user = await findUserByEmail(payload.email);
-  if (!user) {
-    throw TerminalError.fromCode(ERROR_CODES.AUTH_USER_NOT_FOUND);
-  }
-
-  return generateToken(toPublicUser(user));
 }

@@ -15,7 +15,7 @@ import {
 export interface CreateUserData {
   id: string;
   email: string;
-  passwordHash: string;
+  displayName?: string;
 }
 
 export async function createUser(data: CreateUserData): Promise<User> {
@@ -26,7 +26,7 @@ export async function createUser(data: CreateUserData): Promise<User> {
     GSI1PK: data.email.toLowerCase(),
     id: data.id,
     email: data.email,
-    passwordHash: data.passwordHash,
+    displayName: data.displayName,
     createdAt: now,
     updatedAt: now,
   };
@@ -36,18 +36,17 @@ export async function createUser(data: CreateUserData): Promise<User> {
   return {
     id: userRecord.id,
     email: userRecord.email,
+    displayName: userRecord.displayName,
     createdAt: userRecord.createdAt,
     updatedAt: userRecord.updatedAt,
   };
 }
 
-export async function findUserById(id: string): Promise<(User & { passwordHash: string }) | null> {
+export async function findUserById(id: string): Promise<User | null> {
   return await getUserById(id);
 }
 
-export async function findUserByEmail(
-  email: string
-): Promise<(User & { passwordHash: string }) | null> {
+export async function findUserByEmail(email: string): Promise<User | null> {
   return await getUserByEmail(email);
 }
 
@@ -55,39 +54,12 @@ export async function userExists(email: string): Promise<boolean> {
   return await userExistsByEmail(email);
 }
 
-export function toPublicUser(user: User & { passwordHash: string }): User {
+export function toPublicUser(user: User): User {
   return {
     id: user.id,
     email: user.email,
+    displayName: user.displayName,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
 }
-
-// ============================================================================
-// Demo User - Create on startup
-// ============================================================================
-
-async function createDemoUser(): Promise<void> {
-  const demoEmail = 'demo@example.com';
-  const demoPassword = 'demo1234';
-
-  if (await userExists(demoEmail)) {
-    return;
-  }
-
-  // Hash password with bcrypt (10 rounds)
-  const bcrypt = await import('bcrypt');
-  const passwordHash = await bcrypt.hash(demoPassword, 10);
-
-  await createUser({
-    id: 'demo-user-001',
-    email: demoEmail,
-    passwordHash,
-  });
-
-  console.log('✓ Demo user created: demo@example.com / demo1234');
-}
-
-// Create demo user on module load
-void createDemoUser();
