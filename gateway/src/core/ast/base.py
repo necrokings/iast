@@ -8,72 +8,22 @@ Base class for all AST (Automated Streamlined Transaction) scripts.
 import concurrent.futures
 import threading
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 from uuid import uuid4
 
 import structlog
 from tnz.ati import Ati
 
-from ..db import get_dynamodb_client
-from ..services.tn3270.host import Host
+from ...db import get_dynamodb_client
+from ...services.tn3270.host import Host
+from .result import ASTResult, ASTStatus, ItemResult
+from . import helpers
 
 if TYPE_CHECKING:
-    from ..db import DynamoDBClient
+    from ...db import DynamoDBClient
 
 log = structlog.get_logger()
-
-
-class ASTStatus(Enum):
-    """Status of an AST execution."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCESS = "success"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TIMEOUT = "timeout"
-
-
-@dataclass
-class ItemResult:
-    """Result of processing a single item (e.g., policy)."""
-
-    item_id: str
-    status: Literal["success", "failed", "skipped"]
-    started_at: datetime
-    completed_at: datetime
-    duration_ms: int
-    error: str | None = None
-    data: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ASTResult:
-    """Result of an AST execution."""
-
-    status: ASTStatus
-    message: str = ""
-    current_screen: str = ""
-    data: dict[str, Any] = field(default_factory=lambda: {})
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    error: str | None = None
-    item_results: list[ItemResult] = field(default_factory=lambda: [])
-
-    @property
-    def duration(self) -> float | None:
-        """Get execution duration in seconds."""
-        if self.started_at and self.completed_at:
-            return (self.completed_at - self.started_at).total_seconds()
-        return None
-
-    @property
-    def is_success(self) -> bool:
-        """Check if execution was successful."""
-        return self.status == ASTStatus.SUCCESS
 
 
 # Type for progress callback
@@ -618,219 +568,6 @@ class AST(ABC):
         )
 
     # ------------------------------------------------------------------ #
-    # Execution helpers
-    # ------------------------------------------------------------------ #
-    def _validate_credentials(
-        self, **kwargs: Any
-    ) -> tuple[str | None, str | None, str, str, list[Any]]:
-        """Extract and return execution parameters from kwargs.
-        
-        Returns:
-            Tuple of (username, password, app_user_id, session_id, raw_items)
-        """
-        username = kwargs.get("username")
-        password = kwargs.get("password")
-        app_user_id: str = kwargs.get("userId", "anonymous")
-        raw_items: list[Any] = self.prepare_items(**kwargs)
-        
-        # Set execution and session IDs
-        self._execution_id = kwargs.get("execution_id") or str(uuid4())
-        self._session_id = kwargs.get("sessionId", self._execution_id)
-        
-        return username, password, app_user_id, self._session_id, raw_items
-
-    def _create_credentials_error_result(self) -> ASTResult:
-        """Create an error result for missing credentials."""
-        return ASTResult(
-            status=ASTStatus.FAILED,
-            started_at=datetime.now(),
-            completed_at=datetime.now(),
-            message="Missing required parameters: username and password are required",
-            error="ValidationError: username and password must be provided",
-        )
-
-    def _create_initial_result(self, username: str, item_count: int) -> ASTResult:
-        """Create the initial running ASTResult."""
-        return ASTResult(
-            status=ASTStatus.RUNNING,
-            started_at=datetime.now(),
-            data={"username": username, "policyCount": item_count},
-        )
-
-    def _initialize_execution(
-        self, username: str, app_user_id: str, item_count: int, started_at: datetime
-    ) -> None:
-        """Initialize DB and create execution record."""
-        self._init_db()
-        self._create_execution_record(username, app_user_id, item_count, started_at)
-
-    def _finalize_result(
-        self,
-        result: ASTResult,
-        item_results: list[ItemResult],
-        total: int,
-        username: str,
-        is_parallel: bool = False,
-    ) -> None:
-        """Finalize result with counts and update execution record."""
-        success_count = sum(1 for r in item_results if r.status == "success")
-        failed_count = sum(1 for r in item_results if r.status == "failed")
-        skipped_count = sum(1 for r in item_results if r.status == "skipped")
-
-        result.item_results = item_results
-        result.data.update(
-            {
-                "successCount": success_count,
-                "failedCount": failed_count,
-                "skippedCount": skipped_count,
-            }
-        )
-
-        mode_suffix = " (parallel)" if is_parallel else ""
-        
-        if self._cancelled:
-            processed = len(item_results)
-            result.status = ASTStatus.CANCELLED
-            result.message = f"Cancelled by user. Processed {processed}/{total} items."
-            self._update_execution_record("cancelled", result.message, item_results)
-            log.info(f"AST cancelled{mode_suffix}", username=username)
-        else:
-            mode_text = "in parallel " if is_parallel else ""
-            result.status = ASTStatus.SUCCESS
-            result.message = (
-                f"Processed {total} items {mode_text}"
-                f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
-            )
-            self._update_execution_record("success", result.message, item_results)
-            log.info(f"AST completed successfully{mode_suffix}", username=username)
-
-    def _handle_execution_error(
-        self,
-        result: ASTResult,
-        item_results: list[ItemResult],
-        error: Exception,
-        username: str,
-        host: Optional["Host"] = None,
-    ) -> None:
-        """Handle execution error and update records."""
-        result.status = ASTStatus.FAILED
-        result.error = str(error)
-        result.message = f"Error during execution: {error}"
-        result.item_results = item_results
-
-        if host:
-            try:
-                host.show_screen("Error State")
-            except Exception:
-                pass
-
-        self._update_execution_record(
-            "failed", result.message, item_results, error=str(error)
-        )
-        log.exception("AST failed", username=username)
-
-    def _record_item_result(
-        self,
-        item_id: str,
-        status: Literal["success", "failed", "skipped"],
-        item_start: datetime,
-        item_results: list[ItemResult],
-        current: int,
-        total: int,
-        error: Optional[str] = None,
-        item_data: Optional[dict] = None,
-    ) -> int:
-        """Record an item result, report, and persist."""
-        item_end = datetime.now()
-        duration_ms = int((item_end - item_start).total_seconds() * 1000)
-
-        item_result = ItemResult(
-            item_id=item_id,
-            status=status,
-            started_at=item_start,
-            completed_at=item_end,
-            duration_ms=duration_ms,
-            error=error,
-            data=item_data or {},
-        )
-        item_results.append(item_result)
-
-        self.report_item_result(
-            item_id=item_id,
-            status=status,
-            duration_ms=duration_ms,
-            error=error,
-            data=item_data,
-        )
-
-        self._save_item_result(
-            item_id=item_id,
-            status=status,
-            duration_ms=duration_ms,
-            started_at=item_start,
-            completed_at=item_end,
-            error=error,
-            item_data=item_data,
-        )
-
-        message = f"Item {current}/{total}: "
-        if status == "success":
-            message += "Completed"
-        elif status == "failed":
-            message += f"Failed - {error}"
-        else:
-            message += "Skipped"
-
-        self.report_progress(
-            current=current,
-            total=total,
-            current_item=item_id,
-            item_status=status,
-            message=message,
-        )
-
-        return duration_ms
-
-    def _process_single_item_workflow(
-        self,
-        host: "Host",
-        item: Any,
-        index: int,
-        total: int,
-        username: str,
-        password: str,
-    ) -> tuple[bool, str | None, dict[str, Any] | None]:
-        """Execute the authenticate -> process -> logoff workflow for a single item.
-        
-        Returns:
-            Tuple of (success, error, item_data)
-        """
-        # Authenticate
-        success, error = self.authenticate(
-            host,
-            user=username,
-            password=password,
-            expected_keywords_after_login=self.auth_expected_keywords,
-            application=self.auth_application,
-            group=self.auth_group,
-        )
-        if not success:
-            return False, f"Login failed: {error}", None
-
-        # Process
-        success, error, item_data = self.process_single_item(host, item, index, total)
-        if not success:
-            return False, f"Process failed: {error}", None
-
-        # Logoff
-        success, error = self.logoff(host)
-        if not success:
-            # Log warning but don't fail the item if logoff fails
-            log.warning("Logoff failed", item=self.get_item_id(item), error=error)
-
-        return True, None, item_data
-
-    # ------------------------------------------------------------------ #
     # Execute
     # ------------------------------------------------------------------ #
     def execute(self, host: "Host", **kwargs: Any) -> ASTResult:
@@ -838,16 +575,16 @@ class AST(ABC):
         Default execute implementation: login, process each item, logoff.
         Subclasses may override, but typically only implement process_single_item/logoff.
         """
-        username, password, app_user_id, _, raw_items = self._validate_credentials(**kwargs)
+        username, password, app_user_id, _, raw_items = helpers.validate_credentials(self, **kwargs)
 
         if not username or not password:
-            return self._create_credentials_error_result()
+            return helpers.create_credentials_error_result()
 
-        result = self._create_initial_result(username, len(raw_items))
+        result = helpers.create_initial_result(username, len(raw_items))
         item_results: list[ItemResult] = []
 
-        self._initialize_execution(
-            username, app_user_id, len(raw_items), result.started_at or datetime.now()
+        helpers.initialize_execution(
+            self, username, app_user_id, len(raw_items), result.started_at or datetime.now()
         )
 
         try:
@@ -878,7 +615,8 @@ class AST(ABC):
                 )
 
                 if not self.validate_item(item):
-                    self._record_item_result(
+                    helpers.record_item_result(
+                        self,
                         item_id=item_id,
                         status="skipped",
                         item_start=item_start,
@@ -898,12 +636,13 @@ class AST(ABC):
                         message=f"Item {idx + 1}/{total}: Processing",
                     )
                     
-                    success, error, item_data = self._process_single_item_workflow(
-                        host, item, idx + 1, total, username, password
+                    success, error, item_data = helpers.process_single_item_workflow(
+                        self, host, item, idx + 1, total, username, password
                     )
 
                     if success:
-                        duration_ms = self._record_item_result(
+                        duration_ms = helpers.record_item_result(
+                            self,
                             item_id=item_id,
                             status="success",
                             item_start=item_start,
@@ -927,7 +666,8 @@ class AST(ABC):
                     except Exception:
                         pass
 
-                    duration_ms = self._record_item_result(
+                    duration_ms = helpers.record_item_result(
+                        self,
                         item_id=item_id,
                         status="failed",
                         item_start=item_start,
@@ -952,10 +692,10 @@ class AST(ABC):
                     except Exception:
                         log.warning("Recovery logoff failed, continuing...")
 
-            self._finalize_result(result, item_results, total, username, is_parallel=False)
+            helpers.finalize_result(self, result, item_results, total, username, is_parallel=False)
 
         except Exception as e:
-            self._handle_execution_error(result, item_results, e, username, host)
+            helpers.handle_execution_error(self, result, item_results, e, username, host)
 
         return result
 
@@ -989,12 +729,12 @@ class AST(ABC):
         Returns:
             ASTResult with execution status and data
         """
-        username, password, app_user_id, _, raw_items = self._validate_credentials(**kwargs)
+        username, password, app_user_id, _, raw_items = helpers.validate_credentials(self, **kwargs)
 
         if not username or not password:
-            return self._create_credentials_error_result()
+            return helpers.create_credentials_error_result()
 
-        result = self._create_initial_result(username, len(raw_items))
+        result = helpers.create_initial_result(username, len(raw_items))
         item_results: list[ItemResult] = []
         processed_count = 0
         total = len(raw_items)
@@ -1002,8 +742,8 @@ class AST(ABC):
         # Thread-safe lock for updating shared state
         results_lock = threading.Lock()
 
-        self._initialize_execution(
-            username, app_user_id, total, result.started_at or datetime.now()
+        helpers.initialize_execution(
+            self, username, app_user_id, total, result.started_at or datetime.now()
         )
 
         def process_item_with_ati(
@@ -1060,8 +800,8 @@ class AST(ABC):
 
                 # Create Host wrapper and process using shared workflow
                 host = Host(tnz)
-                success, error, item_data = self._process_single_item_workflow(
-                    host, item, index + 1, total, username, password
+                success, error, item_data = helpers.process_single_item_workflow(
+                    self, host, item, index + 1, total, username, password
                 )
 
                 item_end = datetime.now()
@@ -1195,10 +935,10 @@ class AST(ABC):
 
             # Add parallel-specific data before finalization
             result.data["parallelWorkers"] = max_workers
-            self._finalize_result(result, item_results, total, username, is_parallel=True)
+            helpers.finalize_result(self, result, item_results, total, username, is_parallel=True)
 
         except Exception as e:
-            self._handle_execution_error(result, item_results, e, username)
+            helpers.handle_execution_error(self, result, item_results, e, username)
 
         result.completed_at = datetime.now()
         return result

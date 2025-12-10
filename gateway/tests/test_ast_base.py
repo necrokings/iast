@@ -9,7 +9,7 @@ from unittest import mock
 
 from datetime import datetime, timedelta
 
-from src.ast.base import AST, ASTResult, ASTStatus, ItemResult
+from src.core.ast import AST, ASTResult, ASTStatus, ItemResult
 
 
 class DummyHost:
@@ -248,7 +248,7 @@ class ExecuteParallelTests(unittest.TestCase):
         )
         # Patch db client
         self.db_patcher = mock.patch(
-            "src.ast.base.get_dynamodb_client",
+            "src.core.ast.base.get_dynamodb_client",
             return_value=MockDynamoDBClient(),
         )
         self.db_patcher.start()
@@ -280,7 +280,7 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_validates_items(self) -> None:
         """Test that invalid items are skipped."""
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -300,7 +300,7 @@ class ExecuteParallelTests(unittest.TestCase):
         """Test that auth failures are properly recorded."""
         self.ast.should_fail_auth = True
 
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -320,7 +320,7 @@ class ExecuteParallelTests(unittest.TestCase):
         """Test that process failures are properly recorded."""
         self.ast.should_fail_process = True
 
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -337,7 +337,7 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_reports_progress(self) -> None:
         """Test that progress is reported for each item."""
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -353,7 +353,7 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_respects_max_workers(self) -> None:
         """Test that max_workers parameter is included in result data."""
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -380,7 +380,7 @@ class ExecuteParallelTests(unittest.TestCase):
         self.ast.process_delay = 0.05
         items = [f"item{i}" for i in range(20)]
 
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
@@ -398,7 +398,7 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_success(self) -> None:
         """Test successful parallel execution."""
-        with mock.patch("src.ast.base.Ati", MockAtiInstance):
+        with mock.patch("src.core.ast.base.Ati", MockAtiInstance):
             with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
