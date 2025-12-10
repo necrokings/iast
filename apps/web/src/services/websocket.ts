@@ -25,6 +25,10 @@ export type WebSocketEventHandler = {
   onError: (error: Error) => void;
 };
 
+// Module-level singleton map to prevent duplicate WebSocket connections per session
+// This handles React StrictMode double-mounting
+const activeConnections = new Map<string, TerminalWebSocket>();
+
 export class TerminalWebSocket {
   private ws: WebSocket | null = null;
   private sessionId: string;
@@ -41,7 +45,8 @@ export class TerminalWebSocket {
   }
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // Prevent duplicate connections - check for OPEN or CONNECTING state
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
 
@@ -225,6 +230,11 @@ export class TerminalWebSocket {
       this.ws = null;
     }
 
+    // Remove from active connections when destroyed
+    if (destroySession) {
+      activeConnections.delete(this.sessionId);
+    }
+
     this.handlers.onStatusChange('disconnected');
   }
 
@@ -235,11 +245,31 @@ export class TerminalWebSocket {
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
   }
+
+  /** Update handlers - used when reusing an existing connection */
+  updateHandlers(handlers: WebSocketEventHandler): void {
+    this.handlers = handlers;
+  }
 }
 
+/**
+ * Get or create a WebSocket connection for a session.
+ * Uses singleton pattern to prevent duplicate connections (handles React StrictMode).
+ */
 export function createTerminalWebSocket(
   sessionId: string,
   handlers: WebSocketEventHandler
 ): TerminalWebSocket {
-  return new TerminalWebSocket(sessionId, handlers);
+  // Check for existing connection
+  const existing = activeConnections.get(sessionId);
+  if (existing) {
+    // Reuse existing connection, update handlers
+    existing.updateHandlers(handlers);
+    return existing;
+  }
+
+  // Create new connection
+  const ws = new TerminalWebSocket(sessionId, handlers);
+  activeConnections.set(sessionId, ws);
+  return ws;
 }
