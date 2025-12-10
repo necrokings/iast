@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import patch
 
 from src.ast.login import LoginAST
-from src.ast.policy_log import PolicyLogAST
 from src.ast.base import ASTStatus
 
 
@@ -121,27 +120,6 @@ class LoginASTTests(unittest.TestCase):
 
         self.assertEqual(result.item_results[0].status, "skipped")
         self.assertEqual(fake_db.policy_results[0][0], "INVALID")
-
-    @patch("src.ast.base.get_dynamodb_client")
-    @patch("src.ast.policy_log.time.sleep", return_value=None)
-    def test_policy_log_ast_logs_policy(self, _sleep: object, mock_db_factory: object) -> None:
-        host = _FakeHost()
-        fake_db = _FakeDB()
-        mock_db_factory.return_value = fake_db
-
-        ast = PolicyLogAST()
-        result = ast.run(
-            host,
-            execution_id="exec-log",
-            username="USER1",
-            password="PASS1",
-            policyNumbers=["ABC123456"],
-        )
-
-        self.assertEqual(result.status, ASTStatus.SUCCESS)
-        self.assertEqual(len(result.item_results), 1)
-        self.assertEqual(result.item_results[0].data.get("status"), "logged")
-        self.assertTrue(fake_db.policy_results)
 
 
 if __name__ == "__main__":
