@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 import unittest
-import unittest.mock
+from unittest import mock
 
 from datetime import datetime, timedelta
 
@@ -159,8 +159,6 @@ class ParallelASTForTesting(AST):
         return True, "", []
 
     def process_single_item(self, host, item, index: int, total: int):
-        import time
-
         time.sleep(self.process_delay)
         if self.should_fail_process:
             return False, "Process failed", {}
@@ -249,7 +247,7 @@ class ExecuteParallelTests(unittest.TestCase):
             on_item_result=lambda *args: self.item_calls.append(args),
         )
         # Patch db client
-        self.db_patcher = unittest.mock.patch(
+        self.db_patcher = mock.patch(
             "src.ast.base.get_dynamodb_client",
             return_value=MockDynamoDBClient(),
         )
@@ -282,8 +280,8 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_validates_items(self) -> None:
         """Test that invalid items are skipped."""
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -302,8 +300,8 @@ class ExecuteParallelTests(unittest.TestCase):
         """Test that auth failures are properly recorded."""
         self.ast.should_fail_auth = True
 
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -322,8 +320,8 @@ class ExecuteParallelTests(unittest.TestCase):
         """Test that process failures are properly recorded."""
         self.ast.should_fail_process = True
 
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -339,8 +337,8 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_reports_progress(self) -> None:
         """Test that progress is reported for each item."""
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -355,8 +353,8 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_respects_max_workers(self) -> None:
         """Test that max_workers parameter is included in result data."""
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -372,8 +370,6 @@ class ExecuteParallelTests(unittest.TestCase):
         """Test that cancellation stops processing."""
         # Cancel after a short delay
         def cancel_after_delay():
-            import time
-
             time.sleep(0.02)
             self.ast.cancel()
 
@@ -384,8 +380,8 @@ class ExecuteParallelTests(unittest.TestCase):
         self.ast.process_delay = 0.05
         items = [f"item{i}" for i in range(20)]
 
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(
@@ -402,8 +398,8 @@ class ExecuteParallelTests(unittest.TestCase):
 
     def test_execute_parallel_success(self) -> None:
         """Test successful parallel execution."""
-        with unittest.mock.patch("tnz.ati.Ati", MockAtiInstance):
-            with unittest.mock.patch(
+        with mock.patch("tnz.ati.Ati", MockAtiInstance):
+            with mock.patch(
                 "src.services.tn3270.host.Host.__init__", lambda self, tnz: None
             ):
                 result = self.ast.execute_parallel(

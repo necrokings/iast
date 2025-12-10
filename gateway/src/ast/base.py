@@ -971,18 +971,25 @@ class AST(ABC):
 
         def process_item_with_ati(
             item: Any, index: int
-        ) -> tuple[str, Literal["success", "failed", "skipped"], int, str | None, dict[str, Any] | None]:
-            """Process a single item using a dedicated ATI session."""
+        ) -> tuple[str, Literal["success", "failed", "skipped"], int, str | None, dict[str, Any] | None, datetime]:
+            """Process a single item using a dedicated ATI session.
+            
+            Returns tuple of (item_id, status, duration_ms, error, item_data, start_time).
+            """
             item_id = self.get_item_id(item)
             item_start = datetime.now()
 
             if not self.validate_item(item):
                 item_end = datetime.now()
                 duration_ms = int((item_end - item_start).total_seconds() * 1000)
-                return item_id, "skipped", duration_ms, "Invalid item", None
+                return item_id, "skipped", duration_ms, "Invalid item", None, item_start
 
             # Create a unique session name for this item
             session_name = f"SESSION_{self._execution_id}_{index}"
+
+            # ATI session return codes
+            ATI_RC_NEW_SESSION = 0  # New session was established
+            ATI_RC_EXISTING_SESSION = 1  # Session specified was established previously
 
             ati_instance: Ati | None = None
             try:
@@ -1003,7 +1010,7 @@ class AST(ABC):
 
                 # Create the session
                 rc = ati_instance.set("SESSION", session_name, verifycert=verifycert)
-                if rc not in (0, 1):
+                if rc not in (ATI_RC_NEW_SESSION, ATI_RC_EXISTING_SESSION):
                     raise Exception(f"Failed to establish ATI session: RC={rc}")
 
                 # Get the tnz instance from ATI
@@ -1055,7 +1062,7 @@ class AST(ABC):
                     duration_ms=duration_ms,
                 )
 
-                return item_id, "success", duration_ms, None, item_data
+                return item_id, "success", duration_ms, None, item_data, item_start
 
             except Exception as e:
                 item_end = datetime.now()
@@ -1066,7 +1073,7 @@ class AST(ABC):
                     error=str(e),
                     duration_ms=duration_ms,
                 )
-                return item_id, "failed", duration_ms, str(e), None
+                return item_id, "failed", duration_ms, str(e), None, item_start
 
             finally:
                 # Clean up ATI session
@@ -1098,9 +1105,12 @@ class AST(ABC):
                 # Collect results as they complete
                 for future in concurrent.futures.as_completed(future_to_item):
                     if self._cancelled:
-                        # Cancel remaining futures
+                        # Cancel pending futures (running tasks cannot be cancelled)
                         for f in future_to_item:
                             f.cancel()
+                        # Note: shutdown(wait=False) would not wait for running tasks,
+                        # but the context manager handles cleanup. Breaking here prevents
+                        # processing more results while letting active tasks finish.
                         break
 
                     item, idx = future_to_item[future]
@@ -1113,17 +1123,15 @@ class AST(ABC):
                             duration_ms,
                             error,
                             item_data,
+                            item_start,
                         ) = future.result()
 
-                        # Record result
-                        item_start = datetime.now() - timedelta(
-                            milliseconds=duration_ms
-                        )
+                        # Record result using actual start time from worker
                         item_result = ItemResult(
                             item_id=result_item_id,
                             status=status,
                             started_at=item_start,
-                            completed_at=datetime.now(),
+                            completed_at=item_start + timedelta(milliseconds=duration_ms),
                             duration_ms=duration_ms,
                             error=error,
                             data=item_data or {},
@@ -1147,7 +1155,7 @@ class AST(ABC):
                             status=status,
                             duration_ms=duration_ms,
                             started_at=item_start,
-                            completed_at=datetime.now(),
+                            completed_at=item_start + timedelta(milliseconds=duration_ms),
                             error=error,
                             item_data=item_data,
                         )
