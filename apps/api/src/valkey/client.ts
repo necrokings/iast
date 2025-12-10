@@ -50,6 +50,7 @@ export class ValkeyClient {
         const sessionId = parts.slice(2).join('.');
         const handlers = this.sessionSubscribers.get(sessionId);
         if (handlers) {
+          console.log('[Valkey] Found', handlers.size, 'handler(s) for session:', sessionId);
           // Call ALL handlers for this session
           for (const handler of handlers) {
             handler(message);
@@ -93,7 +94,7 @@ export class ValkeyClient {
 
   async subscribeToOutput(sessionId: string, handler: (message: string) => void): Promise<void> {
     const channel = getTn3270OutputChannel(sessionId);
-    
+
     // Get or create the set of handlers for this session
     let handlers = this.sessionSubscribers.get(sessionId);
     if (!handlers) {
@@ -105,16 +106,19 @@ export class ValkeyClient {
     handlers.add(handler);
   }
 
-  async unsubscribeFromOutput(sessionId: string, handler?: (message: string) => void): Promise<void> {
+  async unsubscribeFromOutput(
+    sessionId: string,
+    handler?: (message: string) => void
+  ): Promise<void> {
     const channel = getTn3270OutputChannel(sessionId);
     const handlers = this.sessionSubscribers.get(sessionId);
-    
+
     if (handlers) {
       if (handler) {
         // Remove specific handler
         handlers.delete(handler);
       }
-      
+
       // Only unsubscribe from channel if no handlers left
       if (handlers.size === 0 || !handler) {
         this.sessionSubscribers.delete(sessionId);

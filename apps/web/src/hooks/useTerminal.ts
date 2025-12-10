@@ -38,6 +38,8 @@ import {
 export interface UseTerminalOptions {
   sessionId?: string;
   autoConnect?: boolean;
+  /** Disable terminal input (e.g., when AST is running) */
+  inputDisabled?: boolean;
   /** Callback when AST status is received */
   onASTStatus?: (status: ASTStatusMeta) => void;
   /** Callback when AST progress is received */
@@ -85,12 +87,18 @@ const FIXED_COLS = 80;
 const FIXED_ROWS = 43;
 
 export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn {
-  const { autoConnect = true, onASTStatus, onASTProgress, onASTItemResult, onASTPaused } = options;
+  const { autoConnect = true, inputDisabled = false, onASTStatus, onASTProgress, onASTItemResult, onASTPaused } = options;
 
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const terminalInstance = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const wsRef = useRef<TerminalWebSocket | null>(null);
+  const inputDisabledRef = useRef(inputDisabled);
+
+  // Keep inputDisabled ref in sync
+  useEffect(() => {
+    inputDisabledRef.current = inputDisabled;
+  }, [inputDisabled]);
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [dimensions, setDimensions] = useState<TerminalDimensions>({
@@ -244,6 +252,10 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
 
     // Handle user input
     terminal.onData((data: string): void => {
+      // Block input when AST is running (unless paused)
+      if (inputDisabledRef.current) {
+        return;
+      }
       // Send all input to backend - the tnz library handles field protection
       wsRef.current?.sendData(data);
     });
@@ -336,6 +348,10 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   }, []);
 
   const sendKey = useCallback((key: string): void => {
+    // Block input when AST is running (unless paused)
+    if (inputDisabledRef.current) {
+      return;
+    }
     wsRef.current?.sendData(key);
   }, []);
 

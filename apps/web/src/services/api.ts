@@ -1,9 +1,9 @@
 import { getApiUrl } from '../config'
-import { getStoredToken } from '../utils/storage'
+import { getAccessToken } from '../utils/tokenAccessor'
 import type { HistoryResponse, PoliciesResponse } from '../components/history/types'
 
 async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const token = getStoredToken()
+  const token = await getAccessToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }

@@ -5,11 +5,6 @@
 export interface FrontendConfig {
   apiBaseUrl: string;
   wsBaseUrl: string;
-  auth: {
-    tokenStorageKey: string;
-    userStorageKey: string;
-    expiresAtStorageKey: string;
-  };
   terminal: {
     defaultCols: number;
     defaultRows: number;
@@ -53,11 +48,6 @@ export const config: FrontendConfig = {
   apiBaseUrl: getEnvString('VITE_API_BASE_URL', isDev ? '/api' : '/api'),
   // WebSocket connects directly to API server (not proxied by Vite)
   wsBaseUrl: getEnvString('VITE_WS_BASE_URL', isDev ? 'ws://127.0.0.1:3001' : `wss://${window.location.host}`),
-  auth: {
-    tokenStorageKey: 'terminal_auth_token',
-    userStorageKey: 'terminal_auth_user',
-    expiresAtStorageKey: 'terminal_auth_expires',
-  },
   terminal: {
     defaultCols: getEnvNumber('VITE_TERMINAL_COLS', 80),
     defaultRows: getEnvNumber('VITE_TERMINAL_ROWS', 24),

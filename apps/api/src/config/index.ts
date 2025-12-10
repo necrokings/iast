@@ -47,10 +47,9 @@ export function loadConfig(): AppConfig {
       tls: getEnvBoolean('VALKEY_TLS', false),
     },
     auth: {
-      jwtSecret: getEnvString('JWT_SECRET', defaults.auth.jwtSecret),
-      tokenExpirationSeconds: getEnvNumber('TOKEN_EXPIRATION_SECONDS', defaults.auth.tokenExpirationSeconds),
-      refreshTokenExpirationSeconds: getEnvNumber('REFRESH_TOKEN_EXPIRATION_SECONDS', defaults.auth.refreshTokenExpirationSeconds),
-      bcryptRounds: getEnvNumber('BCRYPT_ROUNDS', defaults.auth.bcryptRounds),
+      entraTenantId: getEnvString('ENTRA_TENANT_ID', defaults.auth.entraTenantId),
+      entraClientId: getEnvString('ENTRA_CLIENT_ID', defaults.auth.entraClientId),
+      entraAudience: getEnvString('ENTRA_API_AUDIENCE', defaults.auth.entraAudience),
     },
     tn3270: {
       host: getEnvString('TN3270_HOST', defaults.tn3270.host),

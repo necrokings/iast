@@ -3,12 +3,12 @@
 // ============================================================================
 
 import { getApiUrl } from '../config';
-import { getStoredToken } from '../utils/storage';
+import { getAccessToken } from '../utils/tokenAccessor';
 import type { UserSession } from '@terminal/shared';
 import type { ExecutionRecord } from '../components/history/types';
 
 async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
+  const token = await getAccessToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (init.body) headers['Content-Type'] = 'application/json';

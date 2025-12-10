@@ -123,6 +123,11 @@ class AST(ABC):
     name: str = "base"
     description: str = "Base AST class"
 
+    # Authentication configuration - subclasses should override these
+    auth_expected_keywords: list[str] = []  # Keywords to verify successful login
+    auth_application: str = ""  # Application name for login
+    auth_group: str = ""  # Group name for login
+
     def __init__(self) -> None:
         self._result: ASTResult | None = None
         self._execution_id: str = ""
@@ -443,72 +448,173 @@ class AST(ABC):
     # ------------------------------------------------------------------ #
     # Hooks for subclasses
     # ------------------------------------------------------------------ #
-    def login(
-        self, host: "Host", username: str, password: str
+    def authenticate(
+        self,
+        host: "Host",
+        user: str,
+        password: str,
+        expected_keywords_after_login: list[str],
+        application: str = "",
+        group: str = "",
     ) -> tuple[bool, str, list[str]]:
-        """
-        Default login flow. Subclasses may override if needed.
-        Returns (success, error_message, screenshots).
+        """Authenticate to the mainframe system.
+
+        Common authentication logic that can be used by all AST subclasses.
+        Override this method if you need custom authentication logic.
+
+        Args:
+            host: Host automation interface
+            user: Username
+            password: Password
+            expected_keywords_after_login: List of text strings to expect after successful login
+            application: Application name (optional)
+            group: Group name (optional)
+
+        Returns:
+            Tuple of (success, error_message, screenshots)
         """
         screenshots: list[str] = []
 
-        log.info("Login: waiting for Logon screen...")
-        if not host.wait_for_text("Logon", timeout=120):
-            return False, "Timeout waiting for Logon screen", screenshots
+        # Check if already at expected post-login screen (already authenticated)
+        if expected_keywords_after_login:
+            for keyword in expected_keywords_after_login:
+                if host.screen_contains(keyword):
+                    log.info("Already at expected screen", keyword=keyword)
+                    screenshots.append(host.show_screen("Already Authenticated"))
+                    return True, "", screenshots
 
-        screenshots.append(host.show_screen("Logon Screen"))
-        log.info("Login: entering username...")
-        host.fill_field_by_label("Logon", username)
-        host.enter()
+        # Perform authentication
+        log.info("Starting authentication", user=user)
 
-        log.info("Login: waiting for password prompt...")
-        if not host.wait_for_text("ENTER CURRENT PASSWORD FOR", timeout=30):
-            return False, "Failed to reach password prompt", screenshots
+        try:
+            # Fill userid field
+            if not host.fill_field_by_label("Userid", user, case_sensitive=False):
+                error_msg = "Failed to find Userid field"
+                log.error(error_msg)
+                screenshots.append(host.show_screen("Userid Field Not Found"))
+                return False, error_msg, screenshots
 
-        screenshots.append(host.show_screen("Password Prompt"))
-        log.info("Login: entering password...")
-        host.fill_field_at_position(1, 1, password)
-        host.enter()
+            # Fill password field
+            if not host.fill_field_by_label("Password", password, case_sensitive=False):
+                error_msg = "Failed to find Password field"
+                log.error(error_msg)
+                screenshots.append(host.show_screen("Password Field Not Found"))
+                return False, error_msg, screenshots
 
-        log.info("Login: waiting for Welcome message...")
-        if not host.wait_for_text("Welcome to the TSO system", timeout=60):
-            return False, "Failed to reach Welcome screen", screenshots
+            # Fill application field if provided
+            if application and not host.fill_field_by_label(
+                "Application", application, case_sensitive=False
+            ):
+                log.warning("Failed to find Application field", application=application)
 
-        screenshots.append(host.show_screen("Welcome Screen"))
-        host.enter()
+            # Fill group field if provided
+            if group and not host.fill_field_by_label(
+                "Group", group, case_sensitive=False
+            ):
+                log.warning("Failed to find Group field", group=group)
 
-        log.info("Login: waiting for fortune cookie...")
-        if not host.wait_for_text("fortune cookie", timeout=30):
-            return False, "Failed to reach fortune cookie screen", screenshots
+            # Submit login
+            host.enter()
 
-        screenshots.append(host.show_screen("Fortune Cookie"))
-        host.enter()
+            # Verify we reached expected screen
+            if expected_keywords_after_login:
+                for keyword in expected_keywords_after_login:
+                    if host.wait_for_text(keyword):
+                        log.info("Authentication successful", keyword=keyword)
+                        screenshots.append(
+                            host.show_screen("Authentication Successful")
+                        )
+                        return True, "", screenshots
 
-        log.info("Login: waiting for TSO Applications menu...")
-        if not host.wait_for_text("TSO Applications", timeout=30):
-            return False, "Failed to reach TSO Applications menu", screenshots
+                error_msg = f"Authentication may have failed - expected keywords not found: {expected_keywords_after_login}"
+                log.error(error_msg)
+                screenshots.append(host.show_screen("Authentication Failed"))
+                return False, error_msg, screenshots
 
-        screenshots.append(host.show_screen("TSO Applications"))
+            log.info("Authentication completed")
+            screenshots.append(host.show_screen("Authentication Completed"))
+            return True, "", screenshots
 
-        return True, "", screenshots
+        except Exception as e:
+            error_msg = f"Exception during authentication: {str(e)}"
+            log.error("Exception during authentication", error=str(e), exc_info=True)
+            screenshots.append(host.show_screen("Authentication Exception"))
+            return False, error_msg, screenshots
 
     @abstractmethod
-    def logoff(self, host: "Host") -> tuple[bool, str, list[str]]:
+    def logoff(
+        self, host: "Host", target_screen_keywords: list[str] | None = None
+    ) -> tuple[bool, str, list[str]]:
         """Logoff flow implemented by subclasses."""
+        raise NotImplementedError("Subclasses must implement logoff method")
 
-    def validate_item(self, item_id: str) -> bool:
-        """Override to validate an item identifier."""
+    def validate_item(self, item: Any) -> bool:
+        """Override to validate an item.
+
+        Args:
+            item: The item to validate (can be str, dict, or any type)
+
+        Returns:
+            True if valid, False to skip this item
+        """
         return True
+
+    def get_item_id(self, item: Any) -> str:
+        """Get a string identifier for an item (used for logging and recording).
+
+        Override this if items are dicts or complex objects.
+
+        Args:
+            item: The item to get an ID for
+
+        Returns:
+            String identifier for the item
+        """
+        if isinstance(item, dict):
+            # Try common key names for ID
+            return str(
+                item.get("id") or item.get("policyNumber") or item.get("name") or item
+            )
+        return str(item)
+
+    def prepare_items(self, **kwargs: Any) -> list[Any]:
+        """Prepare items to process.
+
+        Override this method to fetch items from external sources (e.g., API, database).
+        By default, returns items from kwargs['policyNumbers'] or kwargs['items'].
+
+        Items can be any type (str, dict, etc.) - process_single_item should handle the type.
+
+        Args:
+            **kwargs: Parameters passed to execute()
+
+        Returns:
+            List of items to process (can be strings, dicts, or any type)
+        """
+        return kwargs.get("policyNumbers") or kwargs.get("items") or []
 
     @abstractmethod
     def process_single_item(
         self,
         host: "Host",
-        item_id: str,
+        item: Any,
         index: int,
         total: int,
     ) -> tuple[bool, str, dict[str, Any]]:
-        """Per-item processing implemented by subclasses."""
+        """Per-item processing implemented by subclasses.
+
+        Args:
+            host: Host automation interface
+            item: The item to process (can be str, dict, or any type from prepare_items)
+            index: Current item index (1-based)
+            total: Total number of items
+
+        Returns:
+            Tuple of (success, error_message, item_data)
+        """
+        raise NotImplementedError(
+            "Subclasses must implement process_single_item method"
+        )
 
     # ------------------------------------------------------------------ #
     # Execution helpers
@@ -585,7 +691,7 @@ class AST(ABC):
         """
         username = kwargs.get("username")
         password = kwargs.get("password")
-        raw_items: list[str] = kwargs.get("policyNumbers") or kwargs.get("items") or []
+        raw_items: list[Any] = self.prepare_items(**kwargs)
         app_user_id: str = kwargs.get("userId", "anonymous")
         self._session_id = kwargs.get("sessionId", self._execution_id)
 
@@ -617,151 +723,146 @@ class AST(ABC):
 
         try:
             if not raw_items:
-                log.info("No items to process, doing single login/logoff cycle")
-                success, error, screenshots = self.login(host, username, password)
-                all_screenshots.extend(screenshots)
-                if not success:
-                    raise Exception(error)
-
-                success, error, screenshots = self.logoff(host)
-                all_screenshots.extend(screenshots)
-                if not success:
-                    raise Exception(error)
-
+                log.info("No items to process, returning early")
                 result.status = ASTStatus.SUCCESS
-                result.message = f"Successfully logged in and out as {username}"
-            else:
-                total = len(raw_items)
-                log.info(f"Processing {total} items (full cycle each)...")
+                result.message = "No items to process"
+                return result
 
-                for idx, item_id in enumerate(raw_items):
-                    if not self.wait_if_paused():
-                        log.info("AST cancelled by user")
-                        result.status = ASTStatus.CANCELLED
-                        result.message = "Cancelled by user"
-                        break
+            total = len(raw_items)
+            log.info(f"Processing {total} items (full cycle each)...")
 
-                    item_start = datetime.now()
+            for idx, item in enumerate(raw_items):
+                if not self.wait_if_paused():
+                    log.info("AST cancelled by user")
+                    result.status = ASTStatus.CANCELLED
+                    result.message = "Cancelled by user"
+                    break
+
+                item_id = self.get_item_id(item)
+                item_start = datetime.now()
+                self.report_progress(
+                    current=idx + 1,
+                    total=total,
+                    current_item=item_id,
+                    item_status="running",
+                    message=f"Item {idx + 1}/{total}: Logging in",
+                )
+
+                if not self.validate_item(item):
+                    self._record_item_result(
+                        item_id=item_id,
+                        status="skipped",
+                        item_start=item_start,
+                        item_results=item_results,
+                        current=idx + 1,
+                        total=total,
+                        error="Invalid item",
+                    )
+                    continue
+
+                try:
+                    success, error, screenshots = self.authenticate(
+                        host,
+                        user=username,
+                        password=password,
+                        expected_keywords_after_login=self.auth_expected_keywords,
+                        application=self.auth_application,
+                        group=self.auth_group,
+                    )
+                    all_screenshots.extend(screenshots)
+                    if not success:
+                        raise Exception(f"Login failed: {error}")
+
                     self.report_progress(
                         current=idx + 1,
                         total=total,
                         current_item=item_id,
                         item_status="running",
-                        message=f"Item {idx + 1}/{total}: Logging in",
+                        message=f"Item {idx + 1}/{total}: Processing",
+                    )
+                    success, error, item_data = self.process_single_item(
+                        host, item, idx + 1, total
+                    )
+                    if not success:
+                        raise Exception(f"Process failed: {error}")
+
+                    self.report_progress(
+                        current=idx + 1,
+                        total=total,
+                        current_item=item_id,
+                        item_status="running",
+                        message=f"Item {idx + 1}/{total}: Logging off",
+                    )
+                    success, error, screenshots = self.logoff(host)
+                    all_screenshots.extend(screenshots)
+                    if not success:
+                        raise Exception(f"Logoff failed: {error}")
+
+                    duration_ms = self._record_item_result(
+                        item_id=item_id,
+                        status="success",
+                        item_start=item_start,
+                        item_results=item_results,
+                        current=idx + 1,
+                        total=total,
+                        item_data=item_data,
+                    )
+                    log.info(
+                        "Item completed successfully",
+                        item=item_id,
+                        duration_ms=duration_ms,
                     )
 
-                    if not self.validate_item(item_id):
-                        self._record_item_result(
-                            item_id=item_id,
-                            status="skipped",
-                            item_start=item_start,
-                            item_results=item_results,
-                            current=idx + 1,
-                            total=total,
-                            error="Invalid item",
-                        )
-                        continue
+                except Exception as e:
+                    error_screen = None
+                    try:
+                        error_screen = host.get_formatted_screen(show_row_numbers=False)
+                    except Exception:
+                        pass
+
+                    duration_ms = self._record_item_result(
+                        item_id=item_id,
+                        status="failed",
+                        item_start=item_start,
+                        item_results=item_results,
+                        current=idx + 1,
+                        total=total,
+                        error=str(e),
+                        item_data=(
+                            {"errorScreen": error_screen} if error_screen else None
+                        ),
+                    )
+                    log.warning(
+                        "Item failed",
+                        item=item_id,
+                        error=str(e),
+                        duration_ms=duration_ms,
+                    )
 
                     try:
-                        success, error, screenshots = self.login(
-                            host, username, password
-                        )
-                        all_screenshots.extend(screenshots)
-                        if not success:
-                            raise Exception(f"Login failed: {error}")
+                        log.info("Attempting recovery logoff...")
+                        self.logoff(host)
+                    except Exception:
+                        log.warning("Recovery logoff failed, continuing...")
 
-                        self.report_progress(
-                            current=idx + 1,
-                            total=total,
-                            current_item=item_id,
-                            item_status="running",
-                            message=f"Item {idx + 1}/{total}: Processing",
-                        )
-                        success, error, item_data = self.process_single_item(
-                            host, item_id, idx + 1, total
-                        )
-                        if not success:
-                            raise Exception(f"Process failed: {error}")
+            success_count = sum(1 for r in item_results if r.status == "success")
+            failed_count = sum(1 for r in item_results if r.status == "failed")
+            skipped_count = sum(1 for r in item_results if r.status == "skipped")
 
-                        self.report_progress(
-                            current=idx + 1,
-                            total=total,
-                            current_item=item_id,
-                            item_status="running",
-                            message=f"Item {idx + 1}/{total}: Logging off",
-                        )
-                        success, error, screenshots = self.logoff(host)
-                        all_screenshots.extend(screenshots)
-                        if not success:
-                            raise Exception(f"Logoff failed: {error}")
-
-                        duration_ms = self._record_item_result(
-                            item_id=item_id,
-                            status="success",
-                            item_start=item_start,
-                            item_results=item_results,
-                            current=idx + 1,
-                            total=total,
-                            item_data=item_data,
-                        )
-                        log.info(
-                            "Item completed successfully",
-                            item=item_id,
-                            duration_ms=duration_ms,
-                        )
-
-                    except Exception as e:
-                        error_screen = None
-                        try:
-                            error_screen = host.get_formatted_screen(
-                                show_row_numbers=False
-                            )
-                        except Exception:
-                            pass
-
-                        duration_ms = self._record_item_result(
-                            item_id=item_id,
-                            status="failed",
-                            item_start=item_start,
-                            item_results=item_results,
-                            current=idx + 1,
-                            total=total,
-                            error=str(e),
-                            item_data=(
-                                {"errorScreen": error_screen} if error_screen else None
-                            ),
-                        )
-                        log.warning(
-                            "Item failed",
-                            item=item_id,
-                            error=str(e),
-                            duration_ms=duration_ms,
-                        )
-
-                        try:
-                            log.info("Attempting recovery logoff...")
-                            self.logoff(host)
-                        except Exception:
-                            log.warning("Recovery logoff failed, continuing...")
-
-                success_count = sum(1 for r in item_results if r.status == "success")
-                failed_count = sum(1 for r in item_results if r.status == "failed")
-                skipped_count = sum(1 for r in item_results if r.status == "skipped")
-
-                if not self.is_cancelled:
-                    result.status = ASTStatus.SUCCESS
-                    result.message = (
-                        f"Processed {total} items "
-                        f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
-                    )
-                result.item_results = item_results
-                result.data.update(
-                    {
-                        "successCount": success_count,
-                        "failedCount": failed_count,
-                        "skippedCount": skipped_count,
-                    }
+            if not self.is_cancelled:
+                result.status = ASTStatus.SUCCESS
+                result.message = (
+                    f"Processed {total} items "
+                    f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
                 )
+            result.item_results = item_results
+            result.data.update(
+                {
+                    "successCount": success_count,
+                    "failedCount": failed_count,
+                    "skippedCount": skipped_count,
+                }
+            )
 
             result.screenshots = all_screenshots
 

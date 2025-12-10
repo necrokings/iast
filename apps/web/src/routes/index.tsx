@@ -310,7 +310,7 @@ function TerminalPage() {
         </button>
       </div>
 
-      {/* Content */}
+      {/* Content - Only render the active tab to avoid multiple WebSocket connections */}
       <div className="flex-1 flex flex-col gap-4 p-4">
         {tabs.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
@@ -319,9 +319,9 @@ function TerminalPage() {
             </div>
           </div>
         ) : (
-          tabs.map((tab) => (
-            <TabContent key={tab.id} tab={tab} active={tab.id === activeTabId} />
-          ))
+          tabs
+            .filter((tab) => tab.id === activeTabId)
+            .map((tab) => <TabContent key={tab.id} tab={tab} active={true} />)
         )}
         {loadError ? (
           <div className="text-xs text-amber-600 dark:text-amber-400">{loadError}</div>
@@ -333,10 +333,8 @@ function TerminalPage() {
 
 function TabContent({
   tab,
-  active,
 }: {
   tab: { id: string; sessionId: string };
-  active: boolean;
 }) {
   // Pass the tab ID to useAST to get per-tab state
   const {
@@ -346,18 +344,20 @@ function TabContent({
     handleASTItemResult,
     handleASTPaused,
     restoreFromExecution,
+    isRunning: storeIsRunning,
+    reset,
   } = useAST(tab.id);
 
-  const [checkedForActiveExecution, setCheckedForActiveExecution] = useState(false);
-
-  // Check for active execution on mount (handles page refresh)
+  // Check for active execution on mount AND whenever tab becomes visible
+  // This handles the case where user navigates away and AST completes while away
   useEffect(() => {
-    if (checkedForActiveExecution || !tab.sessionId) return;
+    if (!tab.sessionId) return;
 
-    const checkActiveExecution = async () => {
+    const syncExecutionState = async () => {
       try {
         const execution = await getActiveExecution(tab.sessionId);
         if (execution && (execution.status === 'running' || execution.status === 'paused')) {
+          // AST is still running - restore/update state
           restoreFromExecution({
             ast_name: execution.ast_name,
             status: execution.status,
@@ -366,16 +366,29 @@ function TabContent({
             failed_count: execution.failed_count,
             execution_id: execution.execution_id,
           });
+        } else if (storeIsRunning) {
+          // Store thinks AST is running, but it's actually completed
+          // Reset the state to sync with reality
+          if (execution) {
+            // There was an execution that completed
+            handleASTComplete({
+              status: execution.status === 'success' ? 'completed' : execution.status === 'failed' ? 'error' : 'completed',
+              message: execution.message || '',
+              error: execution.error,
+              data: {},
+            });
+          } else {
+            // No execution found at all - just reset
+            reset();
+          }
         }
       } catch (error) {
-        console.error('Failed to check for active execution:', error);
-      } finally {
-        setCheckedForActiveExecution(true);
+        console.error('Failed to sync execution state:', error);
       }
     };
 
-    checkActiveExecution();
-  }, [tab.sessionId, checkedForActiveExecution, restoreFromExecution]);
+    syncExecutionState();
+  }, [tab.sessionId, restoreFromExecution, storeIsRunning, handleASTComplete, reset]);
 
   const handleTerminalReady = useCallback(
     (api: TerminalApi) => {
@@ -426,7 +439,7 @@ function TabContent({
   );
 
   return (
-    <div className={active ? 'flex-1 flex flex-col gap-4' : 'hidden'}>
+    <div className="flex-1 flex flex-col gap-4">
       <div className="flex-1 flex gap-4">
         {tab.sessionId ? (
           <Terminal

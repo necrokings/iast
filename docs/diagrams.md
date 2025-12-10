@@ -11,8 +11,14 @@ flowchart TB
         XTerm["`**xterm.js** Terminal`"]
         Zustand["`**Zustand** Store
         _(AST State)_`"]
-        Auth["`Auth UI
-        _(Login/Register)_`"]
+        Auth["`**MSAL** Auth
+        _(Entra ID SSO)_`"]
+    end
+
+    subgraph EntraID["` **Azure Entra ID** `"]
+        direction TB
+        JWKS["`JWKS Endpoint`"]
+        TokenEndpoint["`Token Endpoint`"]
     end
 
     subgraph API["` **API Server** _(Node.js)_ `"]
@@ -20,7 +26,7 @@ flowchart TB
         Fastify["`**Fastify 5**`"]
         WS["`WebSocket Handler`"]
         AuthService["`Auth Service
-        _(JWT + bcrypt)_`"]
+        _(jose + JWKS)_`"]
         HistoryAPI["`History API`"]
         SessionAPI["`Session API`"]
         ValkeyClient1["`Valkey Client`"]
@@ -64,7 +70,8 @@ flowchart TB
 
     React --> Auth & XTerm & Zustand
 
-    Auth -->|"`**HTTP REST**`"| AuthService
+    Auth -->|"`**MSAL OAuth**`"| TokenEndpoint
+    AuthService -->|"`**Validate Token**`"| JWKS
     XTerm -->|"`**WebSocket**`"| WS
     Zustand -.->|"`State sync`"| XTerm
 
@@ -134,42 +141,48 @@ flowchart TB
     TabsState --> TabState1 & TabState2
 ```
 
-## Authentication Flow
+## Authentication Flow (Azure Entra ID)
 
 ```mermaid
 sequenceDiagram
     autonumber
     
     participant B as 🌐 Browser
+    participant M as 🔐 Azure Entra ID
     participant A as ⚡ API Server
     participant DB as 💾 DynamoDB
 
     rect rgb(50, 40, 50)
-        Note over B,DB: Registration
-        B->>+A: POST /auth/register<br/>{email, password}
-        A->>A: Validate input
-        A->>A: Hash password (bcrypt)
-        A->>DB: PutItem (Users)
-        A->>A: Generate JWT
-        A-->>-B: {token, user}
-        B->>B: Store in localStorage
+        Note over B,DB: User Login (MSAL Redirect)
+        B->>B: User visits app (not authenticated)
+        B->>M: Redirect to Microsoft login
+        M->>M: User authenticates
+        M-->>B: Redirect with authorization code
+        B->>M: MSAL exchanges code for tokens
+        M-->>B: Access token + ID token
     end
 
     rect rgb(40, 50, 50)
-        Note over B,DB: Login
-        B->>+A: POST /auth/login<br/>{email, password}
+        Note over B,DB: User Info & Provisioning
+        B->>+A: GET /auth/me<br/>Authorization: Bearer {entra_token}
+        A->>M: Fetch JWKS (cached)
+        A->>A: Validate token signature
+        A->>A: Extract claims (oid, email, name)
         A->>DB: GetItem (Users)
-        A->>A: Verify password (bcrypt)
-        A->>A: Generate JWT
-        A-->>-B: {token, user}
-        B->>B: Store in localStorage
+        alt User exists
+            DB-->>A: User record
+        else User not found
+            A->>DB: PutItem (new user)
+            DB-->>A: Success
+        end
+        A-->>-B: {id, email, displayName}
     end
 
     rect rgb(40, 40, 60)
-        Note over B,DB: Authenticated Request
-        B->>+A: GET /auth/me<br/>Authorization: Bearer {token}
-        A->>A: Verify JWT
-        A-->>-B: {user}
+        Note over B,DB: Token Refresh (automatic)
+        B->>B: MSAL detects token expiring
+        B->>M: acquireTokenSilent
+        M-->>B: New access token
     end
 ```
 

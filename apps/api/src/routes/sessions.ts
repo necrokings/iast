@@ -31,7 +31,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const body = request.body as { name: string };
       if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
@@ -66,7 +66,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const sessions = await getUserSessionsByUserId(payload.sub);
       return await reply.send(createSuccessResponse(sessions));
@@ -88,7 +88,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const { sessionId } = request.params as { sessionId: string };
       const session = await findUserSessionById(payload.sub, sessionId);
@@ -118,7 +118,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const { sessionId } = request.params as { sessionId: string };
       const body = request.body as { name: string };
@@ -173,7 +173,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const { sessionId } = request.params as { sessionId: string };
 
@@ -208,7 +208,7 @@ export function sessionRoutes(fastify: FastifyInstance): void {
       }
 
       const token = authHeader.slice(7);
-      const payload = verifyToken(token);
+      const payload = await verifyToken(token);
 
       const { sessionId } = request.params as { sessionId: string };
 

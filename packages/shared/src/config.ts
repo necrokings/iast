@@ -20,10 +20,9 @@ export interface ValkeyConfig {
 }
 
 export interface AuthConfig {
-  jwtSecret: string;
-  tokenExpirationSeconds: number;
-  refreshTokenExpirationSeconds: number;
-  bcryptRounds: number;
+  entraTenantId: string;
+  entraClientId: string;
+  entraAudience: string;
 }
 
 export interface TN3270Config {
@@ -69,10 +68,9 @@ export const DEFAULT_VALKEY_CONFIG: ValkeyConfig = {
 };
 
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
-  jwtSecret: 'change-me-in-production',
-  tokenExpirationSeconds: 86400, // 24 hours
-  refreshTokenExpirationSeconds: 604800, // 7 days
-  bcryptRounds: 12,
+  entraTenantId: '',
+  entraClientId: '',
+  entraAudience: '',
 };
 
 export const DEFAULT_TN3270_CONFIG: TN3270Config = {

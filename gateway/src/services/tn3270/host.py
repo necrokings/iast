@@ -188,7 +188,9 @@ class Host:
             r"(Passcode\.+\s+)(\S+)", r"\1******", screen_content, flags=re.IGNORECASE
         )
         # Remove empty new lines from screen content which only has row numbers
-        screen_content = re.sub(r"^\s*\d{2}\s*$\n", "", screen_content, flags=re.MULTILINE)
+        screen_content = re.sub(
+            r"^\s*\d{2}\s*$\n", "", screen_content, flags=re.MULTILINE
+        )
         seperator = "=" * 80
         if title:
             title_text = f" {title} "
@@ -255,12 +257,13 @@ class Host:
 
         return None
 
-    def contains_text(self, text: str, case_sensitive: bool = False) -> bool:
+    def screen_contains(self, text: str, case_sensitive: bool = False) -> bool:
         """
         Check if the screen contains specific text.
 
         Args:
             text: Text to search for
+            case_sensitive: Whether the text match is case sensitive (default: False)
 
         Returns:
             True if text is found on the screen.
@@ -371,12 +374,14 @@ class Host:
         """
         return [f for f in self.get_fields() if f.protected]
 
-    def find_field_by_label(self, label: str, case_sensitive: bool = False) -> ScreenField | None:
+    def find_field_by_label(
+        self, label: str, case_sensitive: bool = False
+    ) -> ScreenField | None:
         """
         Find an unprotected field by its label.
 
-        The label is typically a protected field immediately before
-        an unprotected input field.
+        Searches the entire screen for the label text, then finds the closest
+        unprotected input field after the label position.
 
         Args:
             label: The label text to search for
@@ -385,25 +390,170 @@ class Host:
         Returns:
             The unprotected field following the label, or None.
         """
-        fields = self.get_fields()
-        search_label = label if case_sensitive else label.lower()
+        try:
+            # Get all input fields first
+            input_fields = self.get_unprotected_fields()
+            if not input_fields:
+                return None
 
-        for i, field in enumerate(fields):
-            # Check if this field contains the label
-            field_value = field.value if case_sensitive else field.value.lower()
+            # Get screen dimensions
+            maxrow = self.rows
+            maxcol = self.cols
 
-            if search_label in field_value and field.protected:
-                # Found the label field, now find the next unprotected field
-                for j in range(i + 1, len(fields)):
-                    if not fields[j].protected:
-                        return fields[j]
+            # Get full screen content
+            full_screen = self._tnz.scrstr(0, maxrow * maxcol)
+            if not full_screen:
+                log.warning("Screen buffer is empty")
+                return None
 
-                # Wrap around if needed
-                for j in range(0, i):
-                    if not fields[j].protected:
-                        return fields[j]
+            # Prepare search text
+            search_text = label if case_sensitive else label.upper()
+            screen_text = full_screen if case_sensitive else full_screen.upper()
 
-        return None
+            # Find label position
+            label_pos = screen_text.find(search_text)
+            if label_pos == -1:
+                log.warning("Label not found on screen", label=label)
+                return None
+
+            # Convert buffer position to row/col (0-indexed)
+            label_row = label_pos // maxcol
+            label_col = label_pos % maxcol
+            label_end_col = label_col + len(search_text)
+
+            log.debug(
+                "Label found on screen", label=label, row=label_row, col=label_col
+            )
+
+            # Find the closest input field after the label
+            # Priority: same row to the right, then rows below
+            best_field = None
+            min_distance = float("inf")
+
+            for field in input_fields:
+                field_row = field.row
+                field_col = field.col
+
+                # Skip fields that are ABOVE the label
+                if field_row < label_row:
+                    continue
+
+                # Calculate weighted distance
+                row_diff = field_row - label_row
+
+                # For fields on the same row, prefer fields to the right of the label
+                if row_diff == 0:
+                    if field_col >= label_end_col:
+                        # Field is on same row to the right - ideal case
+                        col_diff = field_col - label_end_col
+                        distance = col_diff
+                    else:
+                        # Field is on same row but to the left - skip it
+                        continue
+                else:
+                    # Different row (below) - prefer closer rows
+                    col_diff = abs(field_col - label_col)
+                    distance = row_diff * 1000 + col_diff
+
+                if distance < min_distance:
+                    min_distance = distance
+                    best_field = field
+
+            if best_field:
+                log.debug(
+                    "Matched field to label",
+                    label=label,
+                    field_row=best_field.row,
+                    field_col=best_field.col,
+                )
+            else:
+                log.warning("No input field found after label", label=label)
+
+            return best_field
+
+        except Exception as e:
+            log.error("Exception in find_field_by_label", label=label, error=str(e))
+            return None
+
+    def get_field_value_by_label(self, label: str, case_sensitive: bool = False) -> str:
+        """
+        Get the value of a field by looking for a nearby label.
+
+        This searches ALL fields (including protected/display fields) to find values.
+        Use find_field_by_label() to find input fields for data entry.
+
+        Args:
+            label: Label text to search for
+            case_sensitive: Whether to perform case-sensitive search
+
+        Returns:
+            Field content (str) or empty string if field not found
+        """
+        try:
+            # Get ALL fields (including protected ones with values)
+            all_fields = self.get_fields()
+            if not all_fields:
+                return ""
+
+            # Get screen dimensions
+            maxrow = self.rows
+            maxcol = self.cols
+
+            # Get full screen content
+            full_screen = self._tnz.scrstr(0, maxrow * maxcol)
+            if not full_screen:
+                return ""
+
+            # Prepare search text
+            search_text = label if case_sensitive else label.upper()
+            screen_text = full_screen if case_sensitive else full_screen.upper()
+
+            # Find label position
+            label_pos = screen_text.find(search_text)
+            if label_pos == -1:
+                log.warning("Label not found on screen", label=label)
+                return ""
+
+            # Convert buffer position to row/col (0-indexed)
+            label_row = label_pos // maxcol
+            label_col = label_pos % maxcol
+            label_end_col = label_col + len(search_text)
+
+            # Find the closest field on the same row, immediately after the label
+            best_field = None
+            min_distance = float("inf")
+
+            for field in all_fields:
+                field_row = field.row
+                field_col = field.col
+
+                # Only consider fields on the same row as the label
+                if field_row != label_row:
+                    continue
+
+                # Only consider fields that start at or after the label ends
+                if field_col < label_end_col:
+                    continue
+
+                # Calculate distance (prefer closest field to the right)
+                distance = field_col - label_end_col
+
+                if distance < min_distance:
+                    min_distance = distance
+                    best_field = field
+
+            if best_field:
+                log.debug("Found field by label", label=label, field=best_field)
+                return best_field.value
+
+            log.warning("No field found after label", label=label)
+            return ""
+
+        except Exception as e:
+            log.error(
+                "Exception in get_field_value_by_label", label=label, error=str(e)
+            )
+            return ""
 
     def find_field_at_cursor(self) -> ScreenField | None:
         """
@@ -483,7 +633,9 @@ class Host:
             self._tnz.key_eraseeof()
         self._tnz.key_data(value)
 
-    def fill_field_by_label(self, label: str, value: str, case_sensitive: bool = False) -> bool:
+    def fill_field_by_label(
+        self, label: str, value: str, case_sensitive: bool = False
+    ) -> bool:
         """
         Find a field by its label and fill it with a value.
 
@@ -499,6 +651,8 @@ class Host:
         if field is None:
             log.warning("Field not found by label", label=label)
             return False
+
+        log.debug("Filling field found by label", label=label, field=field)
 
         # Move cursor to field start
         self.move_cursor_to_address(field.address)
@@ -664,7 +818,7 @@ class Host:
         """
         start = time.time()
         while time.time() - start < timeout:
-            if self.contains_text(text, case_sensitive):
+            if self.screen_contains(text, case_sensitive):
                 return True
             time.sleep(0.5)
 

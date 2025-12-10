@@ -11,7 +11,7 @@ This is a full-stack web-based terminal application that provides secure, real-t
 │  │                React 19 + Vite 7 + TanStack Router + Zustand            │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────┐   │ │
 │  │  │   Auth UI    │  │  AST Panel   │  │     Terminal Component       │   │ │
-│  │  │ (Login/Reg)  │  │  (Zustand)   │  │    (xterm.js + WebSocket)    │   │ │
+│  │  │ (Entra SSO)  │  │  (Zustand)   │  │    (xterm.js + WebSocket)    │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────────────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -24,7 +24,7 @@ This is a full-stack web-based terminal application that provides secure, real-t
 │  │                      Fastify + @fastify/websocket                       │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────┐   │ │
 │  │  │  Auth Routes │  │  History API │  │    WebSocket Terminal        │   │ │
-│  │  │ (JWT/bcrypt) │  │ (Executions) │  │       Handler                │   │ │
+│  │  │ (Entra/jose) │  │ (Executions) │  │       Handler                │   │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────────────────────┘   │ │
 │  │                          │                        │                     │ │
 │  │                   ┌──────┴───────┐                │                     │ │
@@ -132,11 +132,11 @@ terminal/
 
 ### 1. Web Frontend (`apps/web`)
 
-**Technology**: React 19, Vite 7, TypeScript 5.9, TanStack Router, Zustand, Tailwind CSS v4, xterm.js
+**Technology**: React 19, Vite 7, TypeScript 5.9, TanStack Router, Zustand, Tailwind CSS v4, xterm.js, MSAL
 
 **Responsibilities**:
 
-- User authentication (login/register forms)
+- User authentication via Azure Entra ID (MSAL)
 - Multi-tab terminal sessions with tab management
 - Terminal UI rendering with xterm.js
 - AST (Automated Streamlined Transaction) panel with form inputs
@@ -165,24 +165,24 @@ terminal/
 
 ### 2. API Server (`apps/api`)
 
-**Technology**: Fastify 5, TypeScript, ioredis, AWS SDK (DynamoDB), JWT, bcrypt
+**Technology**: Fastify 5, TypeScript, ioredis, AWS SDK (DynamoDB), jose
 
 **Responsibilities**:
 
-- REST API for authentication (login, register, token refresh)
+- REST API for user info (auto-provisioning from Entra tokens)
 - REST API for session management (CRUD)
 - REST API for execution history
 - WebSocket endpoint for terminal connections
-- JWT token validation
+- Azure Entra ID token validation via jose
 - Message routing between browser and TN3270 gateway via Valkey
 
 **Key Files**:
 
-- `routes/auth.ts` - Authentication endpoints
+- `routes/auth.ts` - User info endpoint (auto-provisions users)
 - `routes/sessions.ts` - Session management endpoints
 - `routes/history.ts` - Execution history endpoints
 - `ws/terminal.ts` - WebSocket terminal handler
-- `services/auth.ts` - JWT generation and password hashing
+- `services/auth.ts` - Entra token validation via jose
 - `services/dynamodb.ts` - DynamoDB client
 - `valkey/client.ts` - Valkey pub/sub client
 
@@ -190,10 +190,7 @@ terminal/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/auth/register` | Create new user account |
-| POST | `/auth/login` | Authenticate and get JWT |
-| GET | `/auth/me` | Get current user info |
-| POST | `/auth/refresh` | Refresh JWT token |
+| GET | `/auth/me` | Get current user info (auto-provisions from Entra token) |
 | GET | `/sessions` | List user sessions |
 | POST | `/sessions` | Create new session |
 | PUT | `/sessions/:id` | Update session |
@@ -293,24 +290,41 @@ interface MessageEnvelope {
 
 ## Data Flow
 
-### 1. Authentication Flow
+### 1. Authentication Flow (Azure Entra ID)
 
 ```
-Browser                    API Server                  DynamoDB
-   │                           │                          │
-   │  POST /auth/login         │                          │
-   │  {email, password}        │                          │
-   │──────────────────────────>│                          │
-   │                           │ Query user               │
-   │                           │─────────────────────────>│
-   │                           │<─────────────────────────│
-   │                           │ Verify password          │
-   │                           │ Generate JWT             │
-   │  {token, user}            │                          │
-   │<──────────────────────────│                          │
-   │                           │                          │
-   │  Store token in           │                          │
-   │  localStorage             │                          │
+Browser                    Azure Entra ID              API Server              DynamoDB
+   │                            │                          │                      │
+   │  User visits app           │                          │                      │
+   │  (not authenticated)       │                          │                      │
+   │────────────────────────────>                          │                      │
+   │                            │                          │                      │
+   │  Redirect to Microsoft     │                          │                      │
+   │  login page                │                          │                      │
+   │<───────────────────────────│                          │                      │
+   │                            │                          │                      │
+   │  User authenticates        │                          │                      │
+   │──────────────────────────>│                          │                      │
+   │                            │                          │                      │
+   │  Redirect back with        │                          │                      │
+   │  authorization code        │                          │                      │
+   │<───────────────────────────│                          │                      │
+   │                            │                          │                      │
+   │  MSAL exchanges code       │                          │                      │
+   │  for access token          │                          │                      │
+   │──────────────────────────>│                          │                      │
+   │<───────────────────────────│                          │                      │
+   │                            │                          │                      │
+   │  GET /auth/me              │                          │                      │
+   │  Authorization: Bearer <token>                        │                      │
+   │──────────────────────────────────────────────────────>│                      │
+   │                            │                          │  Validate token      │
+   │                            │                          │  against JWKS        │
+   │                            │                          │  Query/Create user   │
+   │                            │                          │─────────────────────>│
+   │                            │                          │<─────────────────────│
+   │  {id, email, displayName}  │                          │                      │
+   │<──────────────────────────────────────────────────────│                      │
 ```
 
 ### 2. Terminal Session Flow
@@ -377,15 +391,17 @@ Browser              API Server              Valkey              Gateway        
 
 ### Authentication
 
-- Passwords hashed with bcrypt (10 rounds)
-- JWT tokens with configurable expiration (default: 24h)
-- Tokens stored in localStorage (consider HttpOnly cookies for production)
+- Azure Entra ID (Microsoft Identity Platform) for single sign-on
+- MSAL library handles token acquisition, caching, and refresh
+- Backend validates tokens using jose against Azure JWKS endpoint
+- Users auto-provisioned on first login from Entra token claims
 
 ### WebSocket Security
 
-- JWT token required in query parameter for WebSocket connections
-- Token validated before establishing connection
+- Entra access token required in query parameter for WebSocket connections
+- Token validated against Azure JWKS before establishing connection
 - Invalid tokens result in immediate connection close (code 1008)
+- Token refresh handled automatically by MSAL
 
 ### TN3270 Security
 
@@ -430,10 +446,25 @@ pnpm dev
 
 ### Demo User
 
-A demo user is automatically created on API startup:
+Users are authenticated via Azure Entra ID. No local demo user is created.
+Configure your Entra ID tenant and application registration with the following environment variables:
 
-- Email: `demo@example.com`
-- Password: `demo1234`
+**Frontend (.env)**:
+
+```
+VITE_ENTRA_CLIENT_ID=your-client-id
+VITE_ENTRA_TENANT_ID=your-tenant-id
+VITE_ENTRA_REDIRECT_URI=http://localhost:5173
+VITE_ENTRA_API_SCOPE=api://your-client-id/access_as_user
+```
+
+**Backend (.env)**:
+
+```
+ENTRA_TENANT_ID=your-tenant-id
+ENTRA_CLIENT_ID=your-client-id
+ENTRA_API_AUDIENCE=api://your-client-id
+```
 
 ## Scaling Considerations
 

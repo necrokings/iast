@@ -17,7 +17,7 @@ import {
   serializeMessage,
   deserializeMessage,
 } from '@terminal/shared';
-import { getStoredToken } from '../utils/storage';
+import { getAccessToken } from '../utils/tokenAccessor';
 
 export type WebSocketEventHandler = {
   onMessage: (message: MessageEnvelope) => void;
@@ -33,6 +33,7 @@ export class TerminalWebSocket {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private isClosing = false;
+  private isConnecting = false;  // Prevents race condition during async token acquisition
   private seq = 0;
 
   constructor(sessionId: string, handlers: WebSocketEventHandler) {
@@ -41,23 +42,38 @@ export class TerminalWebSocket {
   }
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    // Prevent duplicate connections - check for OPEN, CONNECTING state, or async connect in progress
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING || this.isConnecting) {
       return;
     }
 
     this.isClosing = false;
+    this.isConnecting = true;
     this.handlers.onStatusChange('connecting');
 
-    const token = getStoredToken();
-    const params = new URLSearchParams();
-    if (token) params.set('token', token);
-    const queryString = params.toString();
-    const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${queryString ? `?${queryString}` : ''}`;
+    // Get token asynchronously and then connect
+    this.connectWithToken();
+  }
 
+  private async connectWithToken(): Promise<void> {
     try {
+      const token = await getAccessToken();
+      
+      // Double-check we weren't closed while waiting for token
+      if (this.isClosing) {
+        this.isConnecting = false;
+        return;
+      }
+      
+      const params = new URLSearchParams();
+      if (token) params.set('token', token);
+      const queryString = params.toString();
+      const url = `${config.wsBaseUrl}/terminal/${this.sessionId}${queryString ? `?${queryString}` : ''}`;
+
       this.ws = new WebSocket(url);
       this.setupEventListeners();
     } catch (error) {
+      this.isConnecting = false;
       this.handlers.onError(
         error instanceof Error ? error : new Error('Failed to create WebSocket')
       );
@@ -70,6 +86,7 @@ export class TerminalWebSocket {
     if (!this.ws) return;
 
     this.ws.onopen = (): void => {
+      this.isConnecting = false;
       this.reconnectAttempts = 0;
       this.handlers.onStatusChange('connected');
       this.startHeartbeat();
@@ -95,11 +112,13 @@ export class TerminalWebSocket {
     };
 
     this.ws.onerror = (): void => {
+      this.isConnecting = false;
       this.handlers.onError(new Error('WebSocket error'));
       this.handlers.onStatusChange('error');
     };
 
     this.ws.onclose = (): void => {
+      this.isConnecting = false;
       this.stopHeartbeat();
 
       if (!this.isClosing) {
@@ -120,7 +139,8 @@ export class TerminalWebSocket {
     }
 
     const delay = Math.min(
-      config.reconnect.initialDelayMs * Math.pow(config.reconnect.backoffMultiplier, this.reconnectAttempts),
+      config.reconnect.initialDelayMs *
+        Math.pow(config.reconnect.backoffMultiplier, this.reconnectAttempts),
       config.reconnect.maxDelayMs
     );
 

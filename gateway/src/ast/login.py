@@ -54,6 +54,11 @@ class LoginAST(AST):
     name = "login"
     description = "Login to TSO and process policies (full cycle per policy)"
 
+    # Authentication configuration for Fire system
+    auth_expected_keywords = ["Fire System Selection"]
+    auth_application = "FIRE06"
+    auth_group = "@OOFIRE"
+
     def _phase2_process_policy(
         self, host: "Host", policy_number: str
     ) -> tuple[bool, str, dict[str, Any]]:
@@ -81,46 +86,74 @@ class LoginAST(AST):
 
         return True, "", policy_data
 
-    def _phase3_logoff(self, host: "Host") -> tuple[bool, str, list[str]]:
+    def sign_off(
+        self, host: "Host", target_screen_keywords: list[str] | None = None
+    ) -> bool:
         """
-        Phase 3: Logoff from TSO.
+        Sign off from TSO system.
+
+        Args:
+            host: Host automation interface
+            target_screen_keywords: Optional list of keywords to verify sign-off reached target screen
 
         Returns:
-            Tuple of (success, error_message, screenshots)
+            True if sign-off successful, False otherwise
         """
-        screenshots: list[str] = []
+        log.info("🔒 Signing off from terminal session...")
+        max_backoff_count = 20
+        while (
+            not host.wait_for_text("Exit Menu", timeout=0.8) and max_backoff_count > 0
+        ):
+            host.pf(15)
+            max_backoff_count -= 1
 
-        # Step 1: Exit with PF3
-        log.info("Phase 3.1: Pressing PF3 to exit...")
-        host.pf(3)
-
-        # Step 2: Wait for termination message
-        log.info("Phase 3.2: Waiting for termination message...")
-        if not host.wait_for_text("TSO Applications Menu terminated", timeout=30):
-            return False, "Failed to exit TSO Applications", screenshots
-
-        screenshots.append(host.show_screen("Menu Terminated"))
-
-        # Step 3: Logoff
-        log.info("Phase 3.3: Logging off...")
-        host.type_text("logoff")
+        host.show_screen("Exit Menu")
+        host.fill_field_at_position(36, 5, "1")
+        host.show_screen("Confirm Exit")
         host.enter()
 
-        screenshots.append(host.show_screen("After Logoff"))
+        # Check for target screen or default SIGNON
+        target_keywords = target_screen_keywords or ["**** SIGNON ****", "SIGNON"]
+        for keyword in target_keywords:
+            if host.wait_for_text(keyword, timeout=10):
+                log.info("✅ Signed off successfully.", keyword=keyword)
+                return True
 
-        # Wait a moment for logoff to complete
-        time.sleep(0.5)
+        log.warning("Failed to reach expected sign-off screen")
+        return False
 
-        return True, "", screenshots
+    def logoff(self, host: "Host", target_screen_keywords: list[str] | None = None) -> tuple[bool, str, list[str]]:
+        """Implement abstract logoff using sign_off."""
+        screenshots: list[str] = []
 
-    def logoff(self, host: "Host") -> tuple[bool, str, list[str]]:
-        """Implement abstract logoff using the existing phase."""
-        return self._phase3_logoff(host)
+        log.info("🔒 Signing off from terminal session...")
+        max_backoff_count = 20
+        while (
+            not host.wait_for_text("Exit Menu", timeout=0.8) and max_backoff_count > 0
+        ):
+            host.pf(15)
+            max_backoff_count -= 1
 
-    def validate_item(self, item_id: str) -> bool:
-        return validate_policy_number(item_id)
+        host.show_screen("Exit Menu")
+        host.fill_field_at_position(36, 5, "1")
+        host.show_screen("Confirm Exit")
+        host.enter()
+
+        # Check for target screen or default SIGNON
+        target_keywords = target_screen_keywords or ["**** SIGNON ****", "SIGNON"]
+        for keyword in target_keywords:
+            if host.wait_for_text(keyword, timeout=10):
+                log.info("✅ Signed off successfully.", keyword=keyword)
+                screenshots.append(host.show_screen("Signed Off"))
+                return True, "", screenshots
+
+        screenshots.append(host.show_screen("Sign Off Failed"))
+        return False, "Failed to sign off", screenshots
+
+    def validate_item(self, item: Any) -> bool:
+        return validate_policy_number(str(item))
 
     def process_single_item(
-        self, host: "Host", item_id: str, index: int, total: int
+        self, host: "Host", item: Any, index: int, total: int
     ) -> tuple[bool, str, dict[str, Any]]:
-        return self._phase2_process_policy(host, item_id)
+        return self._phase2_process_policy(host, str(item))

@@ -9,7 +9,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { UserDropdown } from './UserDropdown'
 
 export function Navbar(): React.ReactNode {
-  const { state: authState, logout } = useAuth()
+  const { userInfo, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
 
   return (
@@ -42,7 +42,7 @@ export function Navbar(): React.ReactNode {
 
       <div className="flex items-center gap-3">
         <ThemeToggle theme={theme} onToggle={toggleTheme} />
-        <UserDropdown email={authState.user?.email || ''} onSignOut={() => void logout()} />
+        <UserDropdown email={userInfo?.email || ''} onSignOut={() => void logout()} />
       </div>
     </header>
   )

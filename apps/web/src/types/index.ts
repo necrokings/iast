@@ -10,11 +10,11 @@ export interface TerminalSession {
   status: ConnectionStatus;
 }
 
+// Note: Auth state is managed by MSAL, not local state
+// This interface is kept for backwards compatibility
 export interface AuthState {
   isAuthenticated: boolean;
   user: AuthUser | null;
-  token: string | null;
-  expiresAt: number | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -22,6 +22,7 @@ export interface AuthState {
 export interface AuthUser {
   id: string;
   email: string;
+  displayName?: string;
 }
 
 export interface TerminalDimensions {
