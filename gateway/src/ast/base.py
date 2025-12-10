@@ -5,10 +5,11 @@
 Base class for all AST (Automated Streamlined Transaction) scripts.
 """
 
+import concurrent.futures
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 from uuid import uuid4
@@ -20,6 +21,7 @@ from ..db import get_dynamodb_client
 if TYPE_CHECKING:
     from ..db import DynamoDBClient
     from ..services.tn3270.host import Host
+    from tnz.ati import Ati
 
 log = structlog.get_logger()
 
@@ -893,4 +895,331 @@ class AST(ABC):
             )
             log.exception("AST failed", username=username)
 
+        return result
+
+    # ------------------------------------------------------------------ #
+    # Parallel Execution using ATI
+    # ------------------------------------------------------------------ #
+    def execute_parallel(
+        self,
+        host_config: dict[str, Any],
+        max_workers: int = 10,
+        **kwargs: Any,
+    ) -> ASTResult:
+        """
+        Execute items in parallel using ATI sessions.
+
+        Creates a new ATI session for each item and processes items in parallel
+        batches. Each session gets its own Host instance.
+
+        Args:
+            host_config: Configuration for connecting to the host, including:
+                - host: Hostname or IP address
+                - port: Port number
+                - secure: Whether to use TLS (default: False)
+                - verifycert: Whether to verify TLS cert (default: False)
+            max_workers: Maximum number of parallel workers (default: 10)
+            **kwargs: Additional parameters for the AST, including:
+                - username: TSO username (required)
+                - password: TSO password (required)
+                - policyNumbers or items: List of items to process
+
+        Returns:
+            ASTResult with execution status and data
+        """
+        from tnz.ati import Ati
+
+        from ..services.tn3270.host import Host
+
+        username = kwargs.get("username")
+        password = kwargs.get("password")
+        raw_items: list[Any] = self.prepare_items(**kwargs)
+        app_user_id: str = kwargs.get("userId", "anonymous")
+        self._execution_id = kwargs.get("execution_id") or str(uuid4())
+        self._session_id = kwargs.get("sessionId", self._execution_id)
+
+        if not username or not password:
+            return ASTResult(
+                status=ASTStatus.FAILED,
+                started_at=datetime.now(),
+                completed_at=datetime.now(),
+                message="Missing required parameters: username and password are required",
+                error="ValidationError: username and password must be provided",
+            )
+
+        result = ASTResult(
+            status=ASTStatus.RUNNING,
+            started_at=datetime.now(),
+            data={"username": username, "policyCount": len(raw_items)},
+        )
+
+        all_screenshots: list[str] = []
+        item_results: list[ItemResult] = []
+        processed_count = 0
+        total = len(raw_items)
+
+        # Thread-safe lock for updating shared state
+        results_lock = threading.Lock()
+
+        self._init_db()
+        self._create_execution_record(
+            username,
+            app_user_id,
+            total,
+            result.started_at or datetime.now(),
+        )
+
+        def process_item_with_ati(
+            item: Any, index: int
+        ) -> tuple[str, Literal["success", "failed", "skipped"], int, str | None, dict[str, Any] | None]:
+            """Process a single item using a dedicated ATI session."""
+            item_id = self.get_item_id(item)
+            item_start = datetime.now()
+
+            if not self.validate_item(item):
+                item_end = datetime.now()
+                duration_ms = int((item_end - item_start).total_seconds() * 1000)
+                return item_id, "skipped", duration_ms, "Invalid item", None
+
+            # Create a unique session name for this item
+            session_name = f"SESSION_{self._execution_id}_{index}"
+
+            ati_instance: Ati | None = None
+            try:
+                # Create new ATI instance for this item
+                ati_instance = Ati()
+
+                # Configure session variables
+                host_addr = host_config.get("host", "localhost")
+                port = host_config.get("port", 3270)
+                secure = host_config.get("secure", False)
+                verifycert = host_config.get("verifycert", False)
+
+                # Set ATI variables for connection
+                ati_instance.set("SESSION_HOST", host_addr, xtern=False)
+                ati_instance.set("SESSION_PORT", str(port), xtern=False)
+                if secure:
+                    ati_instance.set("SESSION_SSL", "1", xtern=False)
+
+                # Create the session
+                rc = ati_instance.set("SESSION", session_name, verifycert=verifycert)
+                if rc not in (0, 1):
+                    raise Exception(f"Failed to establish ATI session: RC={rc}")
+
+                # Get the tnz instance from ATI
+                tnz = ati_instance.get_tnz(session_name)
+                if not tnz:
+                    raise Exception("Failed to get tnz instance from ATI session")
+
+                # Wait for initial screen
+                ati_instance.wait(2)
+
+                # Create Host wrapper
+                host = Host(tnz)
+
+                # Authenticate
+                success, error, screenshots = self.authenticate(
+                    host,
+                    user=username,
+                    password=password,
+                    expected_keywords_after_login=self.auth_expected_keywords,
+                    application=self.auth_application,
+                    group=self.auth_group,
+                )
+                with results_lock:
+                    all_screenshots.extend(screenshots)
+
+                if not success:
+                    raise Exception(f"Login failed: {error}")
+
+                # Process the item
+                success, error, item_data = self.process_single_item(
+                    host, item, index + 1, total
+                )
+                if not success:
+                    raise Exception(f"Process failed: {error}")
+
+                # Logoff
+                success, error, screenshots = self.logoff(host)
+                with results_lock:
+                    all_screenshots.extend(screenshots)
+                if not success:
+                    log.warning("Logoff failed", item=item_id, error=error)
+
+                item_end = datetime.now()
+                duration_ms = int((item_end - item_start).total_seconds() * 1000)
+
+                log.info(
+                    "Item completed successfully (parallel)",
+                    item=item_id,
+                    duration_ms=duration_ms,
+                )
+
+                return item_id, "success", duration_ms, None, item_data
+
+            except Exception as e:
+                item_end = datetime.now()
+                duration_ms = int((item_end - item_start).total_seconds() * 1000)
+                log.warning(
+                    "Item failed (parallel)",
+                    item=item_id,
+                    error=str(e),
+                    duration_ms=duration_ms,
+                )
+                return item_id, "failed", duration_ms, str(e), None
+
+            finally:
+                # Clean up ATI session
+                if ati_instance is not None:
+                    try:
+                        ati_instance.drop(session_name)
+                    except Exception:
+                        pass
+
+        try:
+            if not raw_items:
+                log.info("No items to process, returning early")
+                result.status = ASTStatus.SUCCESS
+                result.message = "No items to process"
+                return result
+
+            log.info(f"Processing {total} items in parallel (max {max_workers} workers)...")
+
+            # Process items in parallel using ThreadPoolExecutor
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers, thread_name_prefix="ast_parallel"
+            ) as executor:
+                # Submit all items for processing
+                future_to_item = {
+                    executor.submit(process_item_with_ati, item, idx): (item, idx)
+                    for idx, item in enumerate(raw_items)
+                }
+
+                # Collect results as they complete
+                for future in concurrent.futures.as_completed(future_to_item):
+                    if self._cancelled:
+                        # Cancel remaining futures
+                        for f in future_to_item:
+                            f.cancel()
+                        break
+
+                    item, idx = future_to_item[future]
+                    item_id = self.get_item_id(item)
+
+                    try:
+                        (
+                            result_item_id,
+                            status,
+                            duration_ms,
+                            error,
+                            item_data,
+                        ) = future.result()
+
+                        # Record result
+                        item_start = datetime.now() - timedelta(
+                            milliseconds=duration_ms
+                        )
+                        item_result = ItemResult(
+                            item_id=result_item_id,
+                            status=status,
+                            started_at=item_start,
+                            completed_at=datetime.now(),
+                            duration_ms=duration_ms,
+                            error=error,
+                            data=item_data or {},
+                        )
+
+                        with results_lock:
+                            item_results.append(item_result)
+                            processed_count += 1
+
+                        # Report progress and result
+                        self.report_item_result(
+                            item_id=result_item_id,
+                            status=status,
+                            duration_ms=duration_ms,
+                            error=error,
+                            data=item_data,
+                        )
+
+                        self._save_item_result(
+                            item_id=result_item_id,
+                            status=status,
+                            duration_ms=duration_ms,
+                            started_at=item_start,
+                            completed_at=datetime.now(),
+                            error=error,
+                            item_data=item_data,
+                        )
+
+                        self.report_progress(
+                            current=processed_count,
+                            total=total,
+                            current_item=result_item_id,
+                            item_status=status,
+                            message=f"Item {processed_count}/{total}: {status}",
+                        )
+
+                    except Exception as e:
+                        log.exception("Error processing future result", item=item_id)
+                        with results_lock:
+                            processed_count += 1
+                            item_results.append(
+                                ItemResult(
+                                    item_id=item_id,
+                                    status="failed",
+                                    started_at=datetime.now(),
+                                    completed_at=datetime.now(),
+                                    duration_ms=0,
+                                    error=str(e),
+                                )
+                            )
+
+            success_count = sum(1 for r in item_results if r.status == "success")
+            failed_count = sum(1 for r in item_results if r.status == "failed")
+            skipped_count = sum(1 for r in item_results if r.status == "skipped")
+
+            if self._cancelled:
+                result.status = ASTStatus.CANCELLED
+                result.message = f"Cancelled by user. Processed {processed_count}/{total} items."
+            else:
+                result.status = ASTStatus.SUCCESS
+                result.message = (
+                    f"Processed {total} items in parallel "
+                    f"({success_count} success, {failed_count} failed, {skipped_count} skipped)"
+                )
+
+            result.item_results = item_results
+            result.data.update(
+                {
+                    "successCount": success_count,
+                    "failedCount": failed_count,
+                    "skippedCount": skipped_count,
+                    "parallelWorkers": max_workers,
+                }
+            )
+            result.screenshots = all_screenshots
+
+            if self._cancelled:
+                self._update_execution_record(
+                    "cancelled", result.message, item_results
+                )
+                log.info("AST cancelled (parallel)", username=username)
+            else:
+                self._update_execution_record("success", result.message, item_results)
+                log.info("AST completed successfully (parallel)", username=username)
+
+        except Exception as e:
+            result.status = ASTStatus.FAILED
+            result.error = str(e)
+            result.message = f"Error during parallel execution: {e}"
+            result.screenshots = all_screenshots
+            result.item_results = item_results
+
+            self._update_execution_record(
+                "failed", result.message, item_results, error=str(e)
+            )
+            log.exception("AST failed (parallel)", username=username)
+
+        result.completed_at = datetime.now()
         return result
