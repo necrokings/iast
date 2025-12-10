@@ -15,18 +15,19 @@ const router = createRouter({ routeTree })
 // Create MSAL instance
 const msalInstance = new PublicClientApplication(msalConfig)
 
-// Initialize MSAL
-msalInstance.initialize().then(() => {
+// Initialize MSAL and wait for everything to be ready before rendering
+async function initializeApp() {
+  // Initialize MSAL
+  await msalInstance.initialize()
+  
   // Handle redirect promise (for redirect-based auth flows)
-  msalInstance.handleRedirectPromise().then((response) => {
-    if (response) {
-      msalInstance.setActiveAccount(response.account)
-    }
-  }).catch((error) => {
-    console.error('Redirect error:', error)
-  })
+  // This MUST complete before rendering to avoid re-renders
+  const response = await msalInstance.handleRedirectPromise()
+  if (response) {
+    msalInstance.setActiveAccount(response.account)
+  }
 
-  // Set active account on login success
+  // Set active account on login success (for future logins)
   msalInstance.addEventCallback((event: EventMessage) => {
     if (event.eventType === EventType.LOGIN_SUCCESS && event.payload) {
       const payload = event.payload as AuthenticationResult
@@ -39,7 +40,7 @@ msalInstance.initialize().then(() => {
     msalInstance.setActiveAccount(msalInstance.getAllAccounts()[0])
   }
 
-  // Render the app
+  // Now render the app - MSAL is fully initialized
   const rootElement = document.getElementById('root')
   if (rootElement && !rootElement.innerHTML) {
     const root = createRoot(rootElement)
@@ -51,6 +52,8 @@ msalInstance.initialize().then(() => {
       </StrictMode>,
     )
   }
-}).catch((error) => {
-  console.error('MSAL initialization error:', error)
+}
+
+initializeApp().catch((error) => {
+  console.error('App initialization error:', error)
 })

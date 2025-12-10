@@ -92,20 +92,6 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
   const fitAddon = useRef<FitAddon | null>(null);
   const wsRef = useRef<TerminalWebSocket | null>(null);
 
-  // Use refs for callbacks to avoid effect re-runs
-  const onASTStatusRef = useRef(onASTStatus);
-  const onASTProgressRef = useRef(onASTProgress);
-  const onASTItemResultRef = useRef(onASTItemResult);
-  const onASTPausedRef = useRef(onASTPaused);
-
-  // Keep refs up to date
-  useEffect(() => {
-    onASTStatusRef.current = onASTStatus;
-    onASTProgressRef.current = onASTProgress;
-    onASTItemResultRef.current = onASTItemResult;
-    onASTPausedRef.current = onASTPaused;
-  });
-
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [dimensions, setDimensions] = useState<TerminalDimensions>({
     cols: FIXED_COLS,
@@ -127,20 +113,20 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     return newId;
   });
 
-  // Handle incoming messages - use refs so callback is stable
+  // Handle incoming messages
   const handleMessage = useCallback((message: MessageEnvelope): void => {
     // Always process AST-related messages, even if terminal is not visible
     if (isASTStatusMessage(message)) {
-      onASTStatusRef.current?.(message.meta);
+      onASTStatus?.(message.meta);
       return;
     } else if (isASTProgressMessage(message)) {
-      onASTProgressRef.current?.(message.meta);
+      onASTProgress?.(message.meta);
       return;
     } else if (isASTItemResultMessage(message)) {
-      onASTItemResultRef.current?.(message.meta);
+      onASTItemResult?.(message.meta);
       return;
     } else if (isASTPausedMessage(message)) {
-      onASTPausedRef.current?.(message.meta.paused);
+      onASTPaused?.(message.meta.paused);
       return;
     }
 
@@ -165,7 +151,7 @@ export function useTerminal(options: UseTerminalOptions = {}): UseTerminalReturn
     } else if (isPongMessage(message)) {
       // Heartbeat response, ignore
     }
-  }, []); // No dependencies - uses refs
+  }, [onASTStatus, onASTProgress, onASTItemResult, onASTPaused]);
 
   // Handle status changes
   const handleStatusChange = useCallback((newStatus: ConnectionStatus): void => {
